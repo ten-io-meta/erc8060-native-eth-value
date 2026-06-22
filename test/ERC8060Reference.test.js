@@ -472,6 +472,21 @@ it("supports IERC721Value interface detection", async function () {
 it("does not support random interface ids", async function () {
   expect(await nft.supportsInterface("0xffffffff")).to.equal(false);
 });
+it("burn reverts atomically if receiver rejects ETH", async function () {
+  // pendiente
+});
+
+it("reentrancy attempt cannot redeem twice", async function () {
+  // pendiente
+});
+
+it("IERC721Value interface id matches expected selector XOR", async function () {
+  // pendiente
+});
+
+it("supportsInterface remains stable after mint burn transfer cycles", async function () {
+  // pendiente
+});
 
   it("non-owner cannot withdraw surplus", async function () {
     await mintAs(user);
