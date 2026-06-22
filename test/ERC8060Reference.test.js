@@ -203,6 +203,133 @@ describe("ERC8060Reference", function () {
 
     expect((await valueOf(1)).toString()).to.equal(REDEEM_VALUE.toString());
   });
+  it("multiple burns reduce obligations correctly", async function () {
+  await mintAs(user);
+  await mintAs(other);
+
+  await nft.connect(user).burn(1);
+
+  expect((await nft.totalRedeemableValue()).toString()).to.equal(
+    REDEEM_VALUE.toString()
+  );
+
+  await nft.connect(other).burn(2);
+
+  expect((await nft.totalRedeemableValue()).toString()).to.equal("0");
+});
+
+it("burning all tokens leaves only surplus", async function () {
+  await mintAs(user);
+  await mintAs(other);
+
+  const initialSurplus = MINT_PRICE.sub(REDEEM_VALUE).mul(2);
+
+  await nft.connect(user).burn(1);
+  await nft.connect(other).burn(2);
+
+  expect((await nft.surplusValue()).toString()).to.equal(
+    initialSurplus.toString()
+  );
+});
+
+it("surplus increases after direct ETH donation", async function () {
+  await mintAs(user);
+
+  const before = await nft.surplusValue();
+
+  await owner.sendTransaction({
+    to: nft.address,
+    value: ethers.utils.parseEther("1"),
+  });
+
+  const after = await nft.surplusValue();
+
+  expect(after.sub(before).toString()).to.equal(
+    ethers.utils.parseEther("1").toString()
+  );
+});
+
+it("burn cannot affect another owner's token", async function () {
+  await mintAs(user);
+  await mintAs(other);
+
+  await nft.connect(user).burn(1);
+
+  expect(await nft.ownerOf(2)).to.equal(other.address);
+
+  expect((await valueOf(2)).toString()).to.equal(
+    REDEEM_VALUE.toString()
+  );
+});
+
+it("token ids remain unique after burns", async function () {
+  await mintAs(user);
+
+  await nft.connect(user).burn(1);
+
+  await mintAs(other);
+
+  expect(await nft.ownerOf(2)).to.equal(other.address);
+});
+it("total redeemable value equals redeemable value per live token", async function () {
+  await mintAs(user);
+  await mintAs(other);
+
+  const total =
+    (await valueOf(1)).add(await valueOf(2));
+
+  expect(
+    (await nft.totalRedeemableValue()).toString()
+  ).to.equal(total.toString());
+});
+
+it("burn updates total redeemable value before transfer", async function () {
+  await mintAs(user);
+
+  await nft.connect(user).burn(1);
+
+  expect(
+    (await nft.totalRedeemableValue()).toString()
+  ).to.equal("0");
+});
+
+it("surplus withdrawal does not change token value", async function () {
+  await mintAs(user);
+
+  const before = await valueOf(1);
+
+  const surplus = await nft.surplusValue();
+
+  await nft.connect(owner).withdrawSurplus(surplus);
+
+  const after = await valueOf(1);
+
+  expect(after.toString()).to.equal(before.toString());
+});
+
+it("contract remains solvent after surplus withdrawal", async function () {
+  await mintAs(user);
+
+  const surplus = await nft.surplusValue();
+
+  await nft.connect(owner).withdrawSurplus(surplus);
+
+  await nft.connect(user).burn(1);
+
+  expect(
+    (await nft.totalRedeemableValue()).toString()
+  ).to.equal("0");
+});
+
+it("redeemable obligations never exceed contract balance", async function () {
+  await mintAs(user);
+  await mintAs(other);
+
+  const obligations = await nft.totalRedeemableValue();
+  const balance = await ethers.provider.getBalance(nft.address);
+
+  expect(balance.gte(obligations)).to.equal(true);
+});
 
   it("non-owner cannot withdraw surplus", async function () {
     await mintAs(user);
