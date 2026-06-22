@@ -87,9 +87,6 @@ contract ERC8060Reference is
             "Insufficient contract balance"
         );
 
-        delete _redeemableValue[tokenId];
-        totalRedeemableValue -= redeemable;
-
         _burn(tokenId);
 
         emit Burned(msg.sender, tokenId, redeemable);
@@ -97,6 +94,20 @@ contract ERC8060Reference is
         (bool success, ) = payable(msg.sender).call{value: redeemable}("");
 
         require(success, "ETH transfer failed");
+    }
+
+    function _burn(uint256 tokenId)
+        internal
+        override(ERC721URIStorage)
+    {
+        uint256 redeemable = _redeemableValue[tokenId];
+
+        if (redeemable > 0) {
+            delete _redeemableValue[tokenId];
+            totalRedeemableValue -= redeemable;
+        }
+
+        super._burn(tokenId);
     }
 
     function surplusValue()
