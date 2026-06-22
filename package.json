@@ -1,0 +1,37 @@
+{
+  "name": "erc8060-native-eth-value",
+  "version": "1.0.0",
+  "description": "Reference implementation and test suite for ERC-8060 native ETH value-bearing NFTs.",
+  "main": "index.js",
+  "scripts": {
+    "test": "hardhat test",
+    "compile": "hardhat compile"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ten-io-meta/erc8060-native-eth-value.git"
+  },
+  "keywords": [
+    "erc8060",
+    "erc721",
+    "ethereum",
+    "native-eth",
+    "nft",
+    "value-bearing"
+  ],
+  "author": "TEN.IO Meta",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/ten-io-meta/erc8060-native-eth-value/issues"
+  },
+  "homepage": "https://github.com/ten-io-meta/erc8060-native-eth-value#readme",
+  "devDependencies": {
+    "@nomiclabs/hardhat-ethers": "^2.2.3",
+    "chai": "^4.5.0",
+    "ethers": "^5.8.0",
+    "hardhat": "^2.22.19"
+  },
+  "dependencies": {
+    "@openzeppelin/contracts": "^4.9.6"
+  }
+}
