@@ -15,6 +15,9 @@ contract ERC8060Reference is ERC721URIStorage, Ownable, IERC721Value {
     uint256 public constant MINT_PRICE = 0.12 ether;
     uint256 public constant REDEEM_VALUE = 0.10 ether;
 
+    bytes4 public constant IERC721VALUE_INTERFACE_ID =
+        type(IERC721Value).interfaceId;
+
     uint256 public totalRedeemableValue;
 
     mapping(uint256 => uint256) private _redeemableValue;
@@ -69,6 +72,17 @@ contract ERC8060Reference is ERC721URIStorage, Ownable, IERC721Value {
         require(amount <= surplusValue(), "Exceeds surplus value");
 
         payable(owner()).transfer(amount);
+    }
+
+    function supportsInterface(bytes4 interfaceId)
+        public
+        view
+        override(ERC721URIStorage)
+        returns (bool)
+    {
+        return
+            interfaceId == type(IERC721Value).interfaceId ||
+            super.supportsInterface(interfaceId);
     }
 
     receive() external payable {}

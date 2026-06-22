@@ -451,6 +451,27 @@ it("minting after all prior tokens are burned creates a fresh redeemable obligat
   expect((await valueOf(2)).toString()).to.equal(REDEEM_VALUE.toString());
   expect((await nft.totalRedeemableValue()).toString()).to.equal(REDEEM_VALUE.toString());
 });
+it("supports ERC165 interface detection", async function () {
+  expect(await nft.supportsInterface("0x01ffc9a7")).to.equal(true);
+});
+
+it("supports ERC721 interface detection", async function () {
+  expect(await nft.supportsInterface("0x80ac58cd")).to.equal(true);
+});
+
+it("supports ERC721 metadata interface detection", async function () {
+  expect(await nft.supportsInterface("0x5b5e139f")).to.equal(true);
+});
+
+it("supports IERC721Value interface detection", async function () {
+  const interfaceId = await nft.IERC721VALUE_INTERFACE_ID();
+
+  expect(await nft.supportsInterface(interfaceId)).to.equal(true);
+});
+
+it("does not support random interface ids", async function () {
+  expect(await nft.supportsInterface("0xffffffff")).to.equal(false);
+});
 
   it("non-owner cannot withdraw surplus", async function () {
     await mintAs(user);
