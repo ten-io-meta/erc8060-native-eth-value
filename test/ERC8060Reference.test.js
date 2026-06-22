@@ -330,6 +330,63 @@ it("redeemable obligations never exceed contract balance", async function () {
 
   expect(balance.gte(obligations)).to.equal(true);
 });
+it("burning all tokens leaves total redeemable value at zero", async function () {
+  await mintAs(user);
+  await mintAs(other);
+
+  await nft.connect(user).burn(1);
+  await nft.connect(other).burn(2);
+
+  expect(
+    (await nft.totalRedeemableValue()).toString()
+  ).to.equal("0");
+});
+
+it("surplus remains positive after all redemptions", async function () {
+  await mintAs(user);
+  await mintAs(other);
+
+  await nft.connect(user).burn(1);
+  await nft.connect(other).burn(2);
+
+  expect(
+    (await nft.surplusValue()).gt(0)
+  ).to.equal(true);
+});
+
+it("multiple transfers do not alter redeemable value", async function () {
+  await mintAs(user);
+
+  await nft.connect(user).transferFrom(user.address, other.address, 1);
+  await nft.connect(other).transferFrom(other.address, user.address, 1);
+
+  expect(
+    (await valueOf(1)).toString()
+  ).to.equal(REDEEM_VALUE.toString());
+});
+
+it("token ids remain sequential after multiple burns and mints", async function () {
+  await mintAs(user);
+  await mintAs(other);
+
+  await nft.connect(user).burn(1);
+
+  await mintAs(user);
+
+  expect(await nft.ownerOf(3)).to.equal(user.address);
+});
+
+it("surplus withdrawal cannot create insolvency", async function () {
+  await mintAs(user);
+
+  const surplus = await nft.surplusValue();
+
+  await nft.connect(owner).withdrawSurplus(surplus);
+
+  expect(
+    (await ethers.provider.getBalance(nft.address)).toString()
+  ).to.equal(REDEEM_VALUE.toString());
+});
 
   it("non-owner cannot withdraw surplus", async function () {
     await mintAs(user);
