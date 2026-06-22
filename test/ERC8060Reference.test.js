@@ -526,6 +526,15 @@ it("emits Burned event", async function () {
   expect(event.args.tokenId.toString()).to.equal("1");
   expect(event.args.value.toString()).to.equal(REDEEM_VALUE.toString());
 });
+it("surplusValue returns zero when there is no surplus", async function () {
+  await mintAs(user);
+
+  const surplus = await nft.surplusValue();
+
+  await nft.connect(owner).withdrawSurplus(surplus);
+
+  expect((await nft.surplusValue()).toString()).to.equal("0");
+});
 
 it("emits SurplusWithdrawn event", async function () {
   await mintAs(user);

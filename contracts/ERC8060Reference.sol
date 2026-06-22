@@ -104,6 +104,10 @@ contract ERC8060Reference is
         view
         returns (uint256)
     {
+        if (address(this).balance <= totalRedeemableValue) {
+            return 0;
+        }
+
         return address(this).balance - totalRedeemableValue;
     }
 
