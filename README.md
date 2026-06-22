@@ -1,57 +1,147 @@
-# Sample Hardhat 3 Project (`node:test` and `viem`)
+# ERC-8060 Reference Implementation
 
-This project showcases a Hardhat 3 project using the native Node.js test runner (`node:test`) and the `viem` library for Ethereum interactions.
+Reference implementation and test suite for ERC-8060 native ETH value-bearing NFTs.
 
-To learn more about Hardhat 3, please visit the [Getting Started guide](https://hardhat.org/docs/getting-started#getting-started-with-hardhat-3). To share your feedback, join our [Hardhat 3](https://hardhat.org/hardhat3-telegram-group) Telegram group or [open an issue](https://github.com/NomicFoundation/hardhat/issues/new) in our GitHub issue tracker.
+## Overview
 
-## Project Overview
+This repository contains a minimal ERC-8060 reference implementation demonstrating:
 
-This example project includes:
+* Native ETH-backed ERC-721 tokens
+* On-chain redeemable value tracking
+* Atomic redemption through burn
+* Surplus accounting
+* ERC-165 interface detection
+* Economic invariant testing
 
-- A simple Hardhat configuration file.
-- Foundry-compatible Solidity unit tests.
-- TypeScript integration tests using [`node:test`](nodejs.org/api/test.html), the new Node.js native test runner, and [`viem`](https://viem.sh/).
-- Examples demonstrating how to connect to different types of networks, including locally simulating OP mainnet.
+The implementation is intentionally simple and is designed as a reference model for auditors, implementers and standards discussions.
 
-## Usage
+---
 
-### Running Tests
+## Reference Parameters
 
-To run all the tests in the project, execute the following command:
+This reference implementation uses:
 
-```shell
+* Mint price: `0.12 ETH`
+* Redeemable value: `0.10 ETH`
+
+These values are example parameters only.
+
+ERC-8060 does not mandate any specific mint price, collateral ratio or redeemable value.
+
+The original TEN.IO genesis deployment used:
+
+* Mint price: `0.012 ETH`
+* Redeemable value: `0.01 ETH`
+
+Future TEN.IO fragments may use different parameters while preserving the same accounting model.
+
+---
+
+## Core Invariants
+
+### Invariant 1
+
+```text
+address(this).balance >= totalRedeemableValue
+```
+
+The contract must always remain solvent.
+
+### Invariant 2
+
+```text
+totalRedeemableValue
+=
+Σ valueOf(tokenId)
+for all live tokens
+```
+
+Outstanding obligations must equal the sum of redeemable values for all existing tokens.
+
+### Invariant 3
+
+```text
+Burn removes redeemable obligation
+before ETH transfer
+```
+
+Accounting updates occur before external value transfer.
+
+### Invariant 4
+
+```text
+Surplus withdrawals can never reduce
+redeemable obligations
+```
+
+Only excess ETH above outstanding obligations may be withdrawn.
+
+---
+
+## Contract Features
+
+* ERC-721 compatible
+* ERC-721 Metadata compatible
+* ERC-165 interface detection
+* IERC721Value interface detection
+* Redeemable value accounting
+* Surplus accounting
+* Owner-controlled surplus withdrawal
+* Reentrancy protection
+* Event emission for mint, burn and surplus withdrawal
+
+---
+
+## Test Coverage
+
+Current test suite includes:
+
+* Mint validation
+* Redemption logic
+* Double redemption prevention
+* Transfer safety
+* Surplus accounting
+* Solvency preservation
+* Interface detection
+* Reentrancy protection
+* Atomic redemption behavior
+* Event emission validation
+
+Current status:
+
+```text
+49 passing tests
+0 failing tests
+```
+
+---
+
+## Development Environment
+
+* Solidity `0.8.20`
+* OpenZeppelin Contracts `4.9.6`
+* Hardhat `2.22.19`
+
+Install dependencies:
+
+```bash
+npm install
+```
+
+Compile:
+
+```bash
+npx hardhat compile
+```
+
+Run tests:
+
+```bash
 npx hardhat test
 ```
 
-You can also selectively run the Solidity or `node:test` tests:
+---
 
-```shell
-npx hardhat test solidity
-npx hardhat test nodejs
-```
+## License
 
-### Make a deployment to Sepolia
-
-This project includes an example Ignition module to deploy the contract. You can deploy this module to a locally simulated chain or to Sepolia.
-
-To run the deployment to a local chain:
-
-```shell
-npx hardhat ignition deploy ignition/modules/Counter.ts
-```
-
-To run the deployment to Sepolia, you need an account with funds to send the transaction. The provided Hardhat configuration includes a Configuration Variable called `SEPOLIA_PRIVATE_KEY`, which you can use to set the private key of the account you want to use.
-
-You can set the `SEPOLIA_PRIVATE_KEY` variable using the `hardhat-keystore` plugin or by setting it as an environment variable.
-
-To set the `SEPOLIA_PRIVATE_KEY` config variable using `hardhat-keystore`:
-
-```shell
-npx hardhat keystore set SEPOLIA_PRIVATE_KEY
-```
-
-After setting the variable, you can run the deployment with the Sepolia network:
-
-```shell
-npx hardhat ignition deploy --network sepolia ignition/modules/Counter.ts
-```
+MIT
