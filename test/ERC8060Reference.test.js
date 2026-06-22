@@ -387,6 +387,70 @@ it("surplus withdrawal cannot create insolvency", async function () {
     (await ethers.provider.getBalance(nft.address)).toString()
   ).to.equal(REDEEM_VALUE.toString());
 });
+it("burn fully removes token value before token becomes nonexistent", async function () {
+  await mintAs(user);
+
+  await nft.connect(user).burn(1);
+
+  await expectRevert(valueOf(1));
+
+  expect((await nft.totalRedeemableValue()).toString()).to.equal("0");
+});
+
+it("burning one token after surplus withdrawal still pays redeemable value", async function () {
+  await mintAs(user);
+
+  const surplus = await nft.surplusValue();
+  await nft.connect(owner).withdrawSurplus(surplus);
+
+  await nft.connect(user).burn(1);
+
+  expect((await nft.totalRedeemableValue()).toString()).to.equal("0");
+  expect((await ethers.provider.getBalance(nft.address)).toString()).to.equal("0");
+});
+
+it("cannot withdraw surplus after all surplus has already been withdrawn", async function () {
+  await mintAs(user);
+
+  const surplus = await nft.surplusValue();
+
+  await nft.connect(owner).withdrawSurplus(surplus);
+
+  await expectRevert(
+    nft.connect(owner).withdrawSurplus(1)
+  );
+});
+
+it("direct donation can be withdrawn as surplus without affecting redemption", async function () {
+  await mintAs(user);
+
+  await owner.sendTransaction({
+    to: nft.address,
+    value: ethers.utils.parseEther("1"),
+  });
+
+  const surplus = await nft.surplusValue();
+
+  await nft.connect(owner).withdrawSurplus(surplus);
+
+  expect((await valueOf(1)).toString()).to.equal(REDEEM_VALUE.toString());
+
+  await nft.connect(user).burn(1);
+
+  expect((await nft.totalRedeemableValue()).toString()).to.equal("0");
+});
+
+it("minting after all prior tokens are burned creates a fresh redeemable obligation", async function () {
+  await mintAs(user);
+
+  await nft.connect(user).burn(1);
+
+  await mintAs(other);
+
+  expect(await nft.ownerOf(2)).to.equal(other.address);
+  expect((await valueOf(2)).toString()).to.equal(REDEEM_VALUE.toString());
+  expect((await nft.totalRedeemableValue()).toString()).to.equal(REDEEM_VALUE.toString());
+});
 
   it("non-owner cannot withdraw surplus", async function () {
     await mintAs(user);
