@@ -15,11 +15,11 @@ contract ERC8060Reference is ERC721URIStorage, Ownable, IERC721Value {
     uint256 public constant MINT_PRICE = 0.12 ether;
     uint256 public constant REDEEM_VALUE = 0.10 ether;
 
+    uint256 public totalRedeemableValue;
+
     mapping(uint256 => uint256) private _redeemableValue;
 
-    constructor()
-        ERC721("ERC8060 Reference", "ERC8060")
-    {}
+    constructor() ERC721("ERC8060 Reference", "ERC8060") {}
 
     function mint(string calldata uri) external payable {
         require(msg.value == MINT_PRICE, "Incorrect ETH amount");
@@ -27,6 +27,7 @@ contract ERC8060Reference is ERC721URIStorage, Ownable, IERC721Value {
         uint256 tokenId = ++nextTokenId;
 
         _redeemableValue[tokenId] = REDEEM_VALUE;
+        totalRedeemableValue += REDEEM_VALUE;
 
         _safeMint(msg.sender, tokenId);
         _setTokenURI(tokenId, uri);
@@ -49,13 +50,25 @@ contract ERC8060Reference is ERC721URIStorage, Ownable, IERC721Value {
         require(ownerOf(tokenId) == msg.sender, "Not token owner");
 
         uint256 redeemable = _redeemableValue[tokenId];
+
         require(address(this).balance >= redeemable, "Insufficient contract balance");
 
         delete _redeemableValue[tokenId];
+        totalRedeemableValue -= redeemable;
 
         _burn(tokenId);
 
         payable(msg.sender).transfer(redeemable);
+    }
+
+    function surplusValue() public view returns (uint256) {
+        return address(this).balance - totalRedeemableValue;
+    }
+
+    function withdrawSurplus(uint256 amount) external onlyOwner {
+        require(amount <= surplusValue(), "Exceeds surplus value");
+
+        payable(owner()).transfer(amount);
     }
 
     receive() external payable {}
