@@ -503,4 +503,41 @@ it("supportsInterface remains stable after mint burn transfer cycles", async fun
 
     expect(await nft.tokenURI(1)).to.equal("ipfs://token-1");
   });
+  it("emits Minted event", async function () {
+  const tx = await nft.connect(user).mint("ipfs://event", { value: MINT_PRICE });
+  const receipt = await tx.wait();
+
+  const event = receipt.events.find((e) => e.event === "Minted");
+
+  expect(event.args.owner).to.equal(user.address);
+  expect(event.args.tokenId.toString()).to.equal("1");
+  expect(event.args.value.toString()).to.equal(REDEEM_VALUE.toString());
+});
+
+it("emits Burned event", async function () {
+  await mintAs(user);
+
+  const tx = await nft.connect(user).burn(1);
+  const receipt = await tx.wait();
+
+  const event = receipt.events.find((e) => e.event === "Burned");
+
+  expect(event.args.owner).to.equal(user.address);
+  expect(event.args.tokenId.toString()).to.equal("1");
+  expect(event.args.value.toString()).to.equal(REDEEM_VALUE.toString());
+});
+
+it("emits SurplusWithdrawn event", async function () {
+  await mintAs(user);
+
+  const surplus = await nft.surplusValue();
+
+  const tx = await nft.connect(owner).withdrawSurplus(surplus);
+  const receipt = await tx.wait();
+
+  const event = receipt.events.find((e) => e.event === "SurplusWithdrawn");
+
+  expect(event.args.owner).to.equal(owner.address);
+  expect(event.args.amount.toString()).to.equal(surplus.toString());
+})
 });
