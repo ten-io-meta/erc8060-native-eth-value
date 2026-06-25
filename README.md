@@ -1,5 +1,5 @@
 # ERC-8060 Reference Implementation
-
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.20849904.svg)](https://doi.org/10.5281/zenodo.20849904)
 Reference implementation and test suite for ERC-8060 native ETH value-bearing NFTs.
 
 ## Overview
