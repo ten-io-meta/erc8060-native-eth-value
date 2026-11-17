@@ -112,12 +112,13 @@ async function callView(url, address, sig, args, blockTag) {
   }
 }
 
-async function inspect(url, target, blockTag) {
+async function inspect(url, target, blockTag, criticalOnly = false) {
   const { address } = target;
   const code = await rpc(url, "eth_getCode", [address, blockTag]);
   const wei = await rpc(url, "eth_getBalance", [address, blockTag]);
-  const implementationStorage = await rpc(url, "eth_getStorageAt", [address, eip1967ImplementationSlot, blockTag])
-    .catch(e => ({ error: normalizeError(e) }));
+  const implementationStorage = criticalOnly ? "NOT_QUERIED_SECONDARY" :
+    await rpc(url, "eth_getStorageAt", [address, eip1967ImplementationSlot, blockTag])
+      .catch(e => ({ error: normalizeError(e) }));
 
   const result = {
     address,
@@ -132,8 +133,15 @@ async function inspect(url, target, blockTag) {
 
   if (!result.codePresent) return result;
 
-  for (const [name, id] of Object.entries(erc165Ids))
-    result.supportsInterface[name] = await callView(url, address, "supportsInterface(bytes4)", [id], blockTag);
+  // Only two financial-interface IDs need independent verification from a
+  // secondary RPC: excessive calls to public Sepolia nodes can hit HTTP 429.
+  const ids = criticalOnly ?
+    ["IERC721ValueStrict", "IERC721ValueLegacyQuery"] :
+    Object.keys(erc165Ids);
+  for (const name of ids)
+    result.supportsInterface[name] = await callView(url, address, "supportsInterface(bytes4)", [erc165Ids[name]], blockTag);
+
+  if (criticalOnly) return result;
 
   const reads = [
     ["ownerOf0", "ownerOf(uint256)", [0]],
@@ -157,10 +165,20 @@ async function inspect(url, target, blockTag) {
 }
 
 function compareSnapshots(a, b) {
-  // Compare values, including missing/reverts, to identify RPC disagreements.
-  const keys = ["codePresent", "runtimeBytes", "codeHash", "balanceWei", "eip1967ImplementationStorage",
-                "supportsInterface", "reads"];
-  return keys.filter(k => JSON.stringify(a[k]) !== JSON.stringify(b[k]));
+  // Compare economic-critical values only, not provider-specific *error text*.
+  // The secondary provider deliberately samples just the strict/legacy IDs.
+  const diffs = ["codePresent", "runtimeBytes", "codeHash", "balanceWei"]
+    .filter(k => JSON.stringify(a[k]) !== JSON.stringify(b[k]));
+  for (const key of ["IERC721ValueStrict", "IERC721ValueLegacyQuery"]) {
+    const first = a.supportsInterface[key] || {};
+    const second = b.supportsInterface[key] || {};
+    // Both genuinely reverted is concordance that the ERC-165 query
+    // failed; neither case should be misread as an ERC-165 "false".
+    if (first.status !== second.status ||
+        (first.status === "ok" && first.value !== second.value))
+      diffs.push("supportsInterface." + key);
+  }
+  return diffs;
 }
 
 (async () => {
@@ -202,7 +220,9 @@ function compareSnapshots(a, b) {
       const probes = [];
       for (const node of nodes) {
         try {
-          probes.push({ endpoint: node.url, snapshot: await inspect(node.url, target, blockTag) });
+          probes.push({ endpoint: node.url, snapshot: await inspect(
+            node.url, target, blockTag, probes.length > 0
+          ) });
         } catch (e) {
           probes.push({ endpoint: node.url, error: normalizeError(e) });
           incomplete = true;
@@ -212,8 +232,8 @@ function compareSnapshots(a, b) {
       const differingFields = good.length === 2 ? compareSnapshots(good[0].snapshot, good[1].snapshot) : [];
       const status = good.length === 0 ? "NOT_VERIFIED" :
         (good.length < 2 ? "SINGLE_RPC_ONLY" :
-          (differingFields.length ? "RPC_DISAGREEMENT" : "TWO_RPCS_AGREE"));
-      if (status !== "TWO_RPCS_AGREE") incomplete = true;
+          (differingFields.length ? "RPC_DISAGREEMENT" : "TWO_RPCS_CRITICAL_AGREE"));
+      if (status !== "TWO_RPCS_CRITICAL_AGREE") incomplete = true;
 
       const output = { ...target, block, blockHash: attest[0] && attest[0].blockHash,
         status, differingFields, probes };
@@ -231,8 +251,8 @@ function compareSnapshots(a, b) {
   console.log("REPORT_PATH " + out);
   console.log("AUDIT_COMPLETE " + JSON.stringify({
     targets: generated.targets.length,
-    consensus: generated.targets.filter(x => x.status === "TWO_RPCS_AGREE").length,
-    unresolved: generated.targets.filter(x => x.status !== "TWO_RPCS_AGREE").length
+    consensus: generated.targets.filter(x => x.status === "TWO_RPCS_CRITICAL_AGREE").length,
+    unresolved: generated.targets.filter(x => x.status !== "TWO_RPCS_CRITICAL_AGREE").length
   }));
 
   // Fail closed: a network outage or disagreement is not a successful audit.
