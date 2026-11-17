@@ -543,8 +543,38 @@ it("IERC721Value interface id matches expected selector XOR", async function () 
   expect(expected).to.equal("0x88495fe7");
   expect(await nft.IERC721VALUE_INTERFACE_ID()).to.equal(expected);
   expect(await nft.supportsInterface(expected)).to.equal(true);
-  expect(await nft.supportsInterface(valueSelector)).to.equal(false);
+  // Legacy query clients still discover the valueOf-only subset.
+  // The strict redemption guarantee is indicated ONLY by the new ID.
+  expect(valueSelector).to.equal("0xcadf338f");
+  expect(await nft.supportsInterface(valueSelector)).to.equal(true);
   expect(await nft.supportsInterface("0xffffffff")).to.equal(false);
+});
+
+it("legacy value-only discovery does not imply strict ETH redemption", async function () {
+  const Legacy = await ethers.getContractFactory("ERC8060LegacyValueOnlyProbe");
+  const legacy = await Legacy.deploy();
+  await legacy.deployed();
+
+  const legacyId = ethers.utils.id("valueOf(uint256)").slice(0, 10);
+  const strictId = await nft.IERC721VALUE_INTERFACE_ID();
+
+  expect(legacyId).to.equal("0xcadf338f");
+  expect(strictId).to.equal("0x88495fe7");
+
+  // Genuine historical minimal capability: a value getter but NO burn.
+  expect(await legacy.supportsInterface(legacyId)).to.equal(true);
+  expect(await legacy.supportsInterface(strictId)).to.equal(false);
+  expect(await legacy.valueOf(1)).to.equal("1");
+  await expectRevert(
+    ethers.provider.call({
+      to: legacy.address,
+      data: nft.interface.encodeFunctionData("burn", [1]),
+    })
+  );
+
+  // Updated reference advertises both because it implements both.
+  expect(await nft.supportsInterface(legacyId)).to.equal(true);
+  expect(await nft.supportsInterface(strictId)).to.equal(true);
 });
 
 it("supportsInterface remains stable after mint burn transfer cycles", async function () {
@@ -555,7 +585,8 @@ it("supportsInterface remains stable after mint burn transfer cycles", async fun
     expect(await nft.supportsInterface("0x80ac58cd")).to.equal(true);
     expect(await nft.supportsInterface("0x5b5e139f")).to.equal(true);
     expect(await nft.supportsInterface(strictId)).to.equal(true);
-    expect(await nft.supportsInterface(valueOnlyId)).to.equal(false);
+    expect(valueOnlyId).to.equal("0xcadf338f");
+    expect(await nft.supportsInterface(valueOnlyId)).to.equal(true);
     expect(await nft.supportsInterface("0xffffffff")).to.equal(false);
   }
 
