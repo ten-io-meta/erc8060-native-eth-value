@@ -208,12 +208,17 @@ function compareSnapshots(a, b) {
         const header = await rpc(node.url, "eth_getBlockByNumber", [blockTag, false]);
         attest.push({ endpoint: node.url, blockHash: header && header.hash });
       } catch (e) {
+        // Some public nodes permit historical eth_getCode/eth_call at an exact
+        // block number but restrict eth_getBlockByNumber. Preserve this gap
+        // explicitly; it is NOT a disagreement about contract economic state.
         attest.push({ endpoint: node.url, error: normalizeError(e) });
-        incomplete = true;
       }
     }
     generated.networks[chainId].blockAttestations = attest;
-    if (attest.length === 2 && attest[0].blockHash !== attest[1].blockHash)
+    const knownHeaders = attest.filter(x => typeof x.blockHash === "string");
+    generated.networks[chainId].blockHashCrossChecked = knownHeaders.length === 2;
+    if (knownHeaders.length === 0) incomplete = true;
+    if (knownHeaders.length === 2 && knownHeaders[0].blockHash !== knownHeaders[1].blockHash)
       incomplete = true;
 
     for (const target of targets.filter(x => x.chainId === chainId)) {
@@ -235,8 +240,8 @@ function compareSnapshots(a, b) {
           (differingFields.length ? "RPC_DISAGREEMENT" : "TWO_RPCS_CRITICAL_AGREE"));
       if (status !== "TWO_RPCS_CRITICAL_AGREE") incomplete = true;
 
-      const output = { ...target, block, blockHash: attest[0] && attest[0].blockHash,
-        status, differingFields, probes };
+      const output = { ...target, block, blockHash: knownHeaders[0] && knownHeaders[0].blockHash,
+        blockHashCrossChecked: knownHeaders.length === 2, status, differingFields, probes };
       generated.targets.push(output);
       console.log("DEPLOYMENT_RESULT " + JSON.stringify({
         id: target.id, chainId, block, status, differingFields,
@@ -252,7 +257,11 @@ function compareSnapshots(a, b) {
   console.log("AUDIT_COMPLETE " + JSON.stringify({
     targets: generated.targets.length,
     consensus: generated.targets.filter(x => x.status === "TWO_RPCS_CRITICAL_AGREE").length,
-    unresolved: generated.targets.filter(x => x.status !== "TWO_RPCS_CRITICAL_AGREE").length
+    unresolved: generated.targets.filter(x => x.status !== "TWO_RPCS_CRITICAL_AGREE").length,
+    networksWithDualBlockHash: Object.values(generated.networks)
+      .filter(x => x.blockHashCrossChecked === true).length,
+    networksWithSingleBlockHash: Object.values(generated.networks)
+      .filter(x => x.blockHashCrossChecked === false).length
   }));
 
   // Fail closed: a network outage or disagreement is not a successful audit.
