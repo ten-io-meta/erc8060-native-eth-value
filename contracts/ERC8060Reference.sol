@@ -12,6 +12,13 @@ interface IERC721Value {
     function burn(uint256 tokenId) external;
 }
 
+/// @notice Historical read-only subset exposed by early ERC-8060 drafts.
+/// @dev Advertising this ID permits legacy value-query clients to discover
+///      valueOf, but MUST NOT be treated as a strict-burn guarantee.
+interface IERC721ValueReadOnlyLegacy {
+    function valueOf(uint256 tokenId) external view returns (uint256);
+}
+
 contract ERC8060Reference is
     ERC721URIStorage,
     Ownable,
@@ -149,6 +156,7 @@ contract ERC8060Reference is
     {
         return
             interfaceId == type(IERC721Value).interfaceId ||
+            interfaceId == type(IERC721ValueReadOnlyLegacy).interfaceId ||
             super.supportsInterface(interfaceId);
     }
 
