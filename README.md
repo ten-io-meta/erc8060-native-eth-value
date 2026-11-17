@@ -141,6 +141,26 @@ reservations can prevent the promised complete redemption.
 
 Draft status does not imply ERC finalization or an independent audit.
 
+### Historical TENIO Fragment is **not** this strict implementation
+
+The older [TENIO Fragment source and deployed executable](https://github.com/ten-io-meta/TENIO-Fragment/pull/3)
+was examined separately. Its deployed contract lacks the required `valueOf()`
+and strict ERC-165 identity, permits owner withdrawal of all backing, and can
+destroy tokens without paying when insufficiently funded. Those historical
+properties are **not imported** by this strict reference. The archived contracts
+remain deployed and are not modified or migrated by this PR.
+
+The strict reference has a protected `totalRedeemableValue` liability and
+only permits owner withdrawal of independently measured surplus. In an
+artificially underfunded Hardhat state, `burn()` reverts without destroying
+the NFT or reducing liabilities; this is not a claim that public users can
+force an underfunding state in the reference.
+
+ERC-165 capability declarations are not proof of authentic ETH backing:
+consumers accepting external NFTs still need trustworthy provenance and
+runtime economic validation. The contract and tests are research references,
+not audited production deployments.
+
 ---
 
 ## Test Coverage
@@ -156,12 +176,14 @@ Current test suite includes:
 * Interface detection
 * Reentrancy protection (a receiver tries to burn a **different live token** during payout)
 * Atomic redemption behavior when an ETH receiver explicitly rejects payment
+* No NFT destruction under simulated ETH insolvency (test-only fault injection, not an onchain withdrawal route)
 * Exact ERC-165 selector XOR, optional legacy query ID, and a value-only impostor rejected as strict
 * Interface discovery stability across mint/transfer/burn cycles
 * Event emission validation
 
-The test file contains **51 substantive Mocha tests** after replacing four
-placeholder cases and adding a negative test for historical value-only detection. Refer to the GitHub Actions `ERC-8060 strict reference tests`
+The test file contains **52 substantive Mocha tests** after replacing four
+placeholder cases and adding negative tests for historical value-only detection
+and for an artificially underfunded vault (Hardhat balance fault injection). Refer to the GitHub Actions `ERC-8060 strict reference tests`
 workflow for the execution result of the commit being reviewed.
 The workflow uses the locked npm dependency tree, compiles Solidity, and
 runs the entire Hardhat suite on every pull request.
