@@ -1,0 +1,31 @@
+name: Read-only deployed ERC-8060 interface survey
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  onchain-readonly:
+    name: Compare Mainnet and Sepolia read-only RPC evidence
+    runs-on: ubuntu-latest
+    timeout-minutes: 9
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+      - name: Install pinned analysis dependencies
+        run: npm ci
+      - name: Query deployed bytecode, ERC-165, backing reads (no transactions)
+        run: node scripts/audit-live-deployments.cjs
+      - name: Save exact block and RPC evidence even when incomplete
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: erc8060-readonly-deployment-survey
+          path: audit-results/live-deployment-survey.json
+          if-no-files-found: warn
