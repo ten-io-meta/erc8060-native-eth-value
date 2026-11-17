@@ -473,19 +473,103 @@ it("does not support random interface ids", async function () {
   expect(await nft.supportsInterface("0xffffffff")).to.equal(false);
 });
 it("burn reverts atomically if receiver rejects ETH", async function () {
-  // pendiente
+  const Probe = await ethers.getContractFactory("ERC8060RedemptionProbe");
+  const probe = await Probe.deploy(nft.address);
+  await probe.deployed();
+
+  await probe.mintForSelf(URI, { value: MINT_PRICE });
+  await probe.setRejectETH(true);
+
+  const beforeVault = await ethers.provider.getBalance(nft.address);
+  const beforeProbe = await ethers.provider.getBalance(probe.address);
+  const beforeLiabilities = await nft.totalRedeemableValue();
+
+  await expectRevert(probe.burnHeld(1));
+
+  expect(await nft.ownerOf(1)).to.equal(probe.address);
+  expect((await valueOf(1)).eq(REDEEM_VALUE)).to.equal(true);
+  expect((await nft.totalRedeemableValue()).eq(beforeLiabilities)).to.equal(true);
+  expect((await ethers.provider.getBalance(nft.address)).eq(beforeVault)).to.equal(true);
+  expect((await ethers.provider.getBalance(probe.address)).eq(beforeProbe)).to.equal(true);
+
+  // The same valid claim must remain payable after rejection is removed.
+  await probe.setRejectETH(false);
+  await probe.burnHeld(1);
+  expect((await ethers.provider.getBalance(probe.address)).eq(beforeProbe.add(REDEEM_VALUE))).to.equal(true);
+  expect((await nft.totalRedeemableValue()).isZero()).to.equal(true);
+  await expectRevert(nft.ownerOf(1));
 });
 
 it("reentrancy attempt cannot redeem twice", async function () {
-  // pendiente
+  const Probe = await ethers.getContractFactory("ERC8060RedemptionProbe");
+  const probe = await Probe.deploy(nft.address);
+  await probe.deployed();
+
+  await probe.mintForSelf(URI, { value: MINT_PRICE });
+  await probe.mintForSelf(URI, { value: MINT_PRICE });
+  expect(await nft.ownerOf(1)).to.equal(probe.address);
+  expect(await nft.ownerOf(2)).to.equal(probe.address);
+
+  // A receiver of token #1 attempts to burn *another* live token #2
+  // reentrantly, ensuring this checks the guard rather than only the
+  // already-burned token's nonexistent-owner condition.
+  await probe.armReentrantBurn(2);
+  const beforeVault = await ethers.provider.getBalance(nft.address);
+  await probe.burnHeld(1);
+
+  expect(await probe.attemptedReentry()).to.equal(true);
+  expect(await probe.reentrantCallSucceeded()).to.equal(false);
+  await expectRevert(nft.ownerOf(1));
+  expect(await nft.ownerOf(2)).to.equal(probe.address);
+  expect((await valueOf(2)).eq(REDEEM_VALUE)).to.equal(true);
+  expect((await nft.totalRedeemableValue()).eq(REDEEM_VALUE)).to.equal(true);
+  expect((await ethers.provider.getBalance(nft.address)).eq(beforeVault.sub(REDEEM_VALUE))).to.equal(true);
+  expect((await ethers.provider.getBalance(probe.address)).eq(REDEEM_VALUE)).to.equal(true);
+
+  // The second token remains redeemable exactly once after the callback.
+  await probe.burnHeld(2);
+  expect((await nft.totalRedeemableValue()).isZero()).to.equal(true);
+  expect((await ethers.provider.getBalance(probe.address)).eq(REDEEM_VALUE.mul(2))).to.equal(true);
+  await expectRevert(probe.burnHeld(2));
 });
 
 it("IERC721Value interface id matches expected selector XOR", async function () {
-  // pendiente
+  const valueSelector = ethers.utils.id("valueOf(uint256)").slice(0, 10);
+  const burnSelector = ethers.utils.id("burn(uint256)").slice(0, 10);
+  const expected = "0x" + (
+    (parseInt(valueSelector, 16) ^ parseInt(burnSelector, 16)) >>> 0
+  ).toString(16).padStart(8, "0");
+
+  expect(expected).to.equal("0x88495fe7");
+  expect(await nft.IERC721VALUE_INTERFACE_ID()).to.equal(expected);
+  expect(await nft.supportsInterface(expected)).to.equal(true);
+  expect(await nft.supportsInterface(valueSelector)).to.equal(false);
+  expect(await nft.supportsInterface("0xffffffff")).to.equal(false);
 });
 
 it("supportsInterface remains stable after mint burn transfer cycles", async function () {
-  // pendiente
+  const strictId = "0x88495fe7";
+  const valueOnlyId = ethers.utils.id("valueOf(uint256)").slice(0, 10);
+  async function checkInterfaces() {
+    expect(await nft.supportsInterface("0x01ffc9a7")).to.equal(true);
+    expect(await nft.supportsInterface("0x80ac58cd")).to.equal(true);
+    expect(await nft.supportsInterface("0x5b5e139f")).to.equal(true);
+    expect(await nft.supportsInterface(strictId)).to.equal(true);
+    expect(await nft.supportsInterface(valueOnlyId)).to.equal(false);
+    expect(await nft.supportsInterface("0xffffffff")).to.equal(false);
+  }
+
+  await checkInterfaces();
+  await mintAs(user);
+  await checkInterfaces();
+  await nft.connect(user).transferFrom(user.address, other.address, 1);
+  await checkInterfaces();
+  await nft.connect(other).burn(1);
+  await checkInterfaces();
+  await mintAs(other);
+  await checkInterfaces();
+  expect(await nft.ownerOf(2)).to.equal(other.address);
+  expect((await valueOf(2)).eq(REDEEM_VALUE)).to.equal(true);
 });
 
   it("non-owner cannot withdraw surplus", async function () {
