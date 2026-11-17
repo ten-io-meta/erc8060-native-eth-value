@@ -5,8 +5,11 @@ import "@openzeppelin/contracts/token/ERC721/extensions/ERC721URIStorage.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
 
+/// @notice Strict ERC-8060 draft interface: query and owner-initiated full burn redemption.
+/// @dev Both selectors are required for the draft ERC-165 interface identifier.
 interface IERC721Value {
     function valueOf(uint256 tokenId) external view returns (uint256);
+    function burn(uint256 tokenId) external;
 }
 
 contract ERC8060Reference is
@@ -74,6 +77,7 @@ contract ERC8060Reference is
 
     function burn(uint256 tokenId)
         external
+        override
         nonReentrant
     {
         require(ownerOf(tokenId) == msg.sender, "Not token owner");
