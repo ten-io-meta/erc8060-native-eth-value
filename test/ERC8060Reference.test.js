@@ -564,7 +564,7 @@ it("legacy value-only discovery does not imply strict ETH redemption", async fun
   // Genuine historical minimal capability: a value getter but NO burn.
   expect(await legacy.supportsInterface(legacyId)).to.equal(true);
   expect(await legacy.supportsInterface(strictId)).to.equal(false);
-  expect((await legacy.valueOf(1)).eq(1)).to.equal(true);
+  expect((await legacy.valueOf(1)).toString()).to.equal("1");
   await expectRevert(
     ethers.provider.call({
       to: legacy.address,
