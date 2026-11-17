@@ -472,6 +472,39 @@ it("supports IERC721Value interface detection", async function () {
 it("does not support random interface ids", async function () {
   expect(await nft.supportsInterface("0xffffffff")).to.equal(false);
 });
+it("strict burn refuses a simulated backing shortfall without destroying the NFT", async function () {
+  await mintAs(user);
+  const originalBalance = await ethers.provider.getBalance(nft.address);
+  const obligations = await nft.totalRedeemableValue();
+
+  // TEST-ONLY fault injection. No public contract function can perform
+  // this balance reduction; it models insolvency from arbitrary external causes.
+  const underfunded = ethers.utils.parseEther("0.05");
+  await ethers.provider.send("hardhat_setBalance", [
+    nft.address,
+    underfunded.toHexString(),
+  ]);
+
+  expect((await ethers.provider.getBalance(nft.address)).eq(underfunded)).to.equal(true);
+  await expectRevert(nft.connect(user).burn(1));
+
+  // Critical distinction from the deployed historical TENIO Fragment:
+  // the unsuccessful redemption must leave the NFT and liability intact.
+  expect(await nft.ownerOf(1)).to.equal(user.address);
+  expect((await valueOf(1)).eq(REDEEM_VALUE)).to.equal(true);
+  expect((await nft.totalRedeemableValue()).eq(obligations)).to.equal(true);
+  expect((await ethers.provider.getBalance(nft.address)).eq(underfunded)).to.equal(true);
+
+  // Once sufficient ETH is restored in the test, legitimate burn succeeds.
+  await ethers.provider.send("hardhat_setBalance", [
+    nft.address,
+    originalBalance.toHexString(),
+  ]);
+  await nft.connect(user).burn(1);
+  await expectRevert(nft.ownerOf(1));
+  expect((await nft.totalRedeemableValue()).isZero()).to.equal(true);
+});
+
 it("burn reverts atomically if receiver rejects ETH", async function () {
   const Probe = await ethers.getContractFactory("ERC8060RedemptionProbe");
   const probe = await Probe.deploy(nft.address);
