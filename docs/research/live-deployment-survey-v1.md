@@ -13,7 +13,7 @@ This is an **evidence collection tool**, not a contract security audit and not a
 
 ## What is queried
 
-All claims are gathered using read-only JSON-RPC methods at a **fixed block**, using up to two independent public endpoints on each network. Evidence includes:
+All claims are gathered using read-only JSON-RPC methods at a **fixed block**, using up to two independent public endpoints on each network. The **primary endpoint** collects the full view survey; the **secondary endpoint** independently verifies block hash, runtime codehash, ETH balance and the two ERC-165 IDs of economic interest. Public Sepolia endpoints may rate-limit excessive read calls, so optional views are not repeated unnecessarily. Evidence includes:
 - Chain ID and selected exact block hash;
 - `eth_getCode`, keccak256 runtime hash, byte length and `eth_getBalance`;
 - EIP-1967 implementation storage slot (a nonzero value may indicate a proxy; zero is not proof of immutability);
@@ -22,7 +22,7 @@ All claims are gathered using read-only JSON-RPC methods at a **fixed block**, u
 
 `eth_call` **does not execute a transaction**. An empty or reverted `valueOf(1)` does **not** prove the function is missing: the token may not exist. Equally, a reported ERC-165 `true` is a declaration, not proof of honest ETH-backed payments. We do not invoke state-changing `burn()` even in simulations because authorization, token availability and sender contract semantics need separate study.
 
-A public RPC reply is not the same as an independently verified execution-layer proof. Agreement between two independent providers improves detection of endpoint errors; it does not replace independently verifying block headers, creation transactions, compiler metadata, source or settlement behavior. If one endpoint is down or disagrees, the audit is marked **incomplete** rather than reporting success. Partial evidence is preserved.
+A public RPC reply is not the same as an independently verified execution-layer proof. Agreement between two independent providers improves detection of endpoint errors; it does not replace independently verifying block headers, creation transactions, compiler metadata, source or settlement behavior. `TWO_RPCS_CRITICAL_AGREE` attests **only** to the checked codehash/balance/strict-and-legacy selectors at one block, **not** to every ancillary primary-provider view call. If one endpoint is down or disagrees on those critical fields, the audit is marked **incomplete** rather than reporting success. An ERC-165 revert is **not** the same as a valid `false` response. Partial evidence is preserved.
 
 ## Commands / evidence
 
