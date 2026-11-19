@@ -18,7 +18,12 @@ const HISTORICAL_DEPLOYMENTS = [
     chainId: 11155111,
     name: "Sepolia",
     oldContract: "0xD360714b72796dC812A0c177B9Be45022D1f3f5B",
-    providers: ["https://ethereum-sepolia-rpc.publicnode.com", "https://1rpc.io/sepolia"]
+    providers: [
+      "https://ethereum-sepolia-rpc.publicnode.com",
+      "https://sepolia.gateway.tenderly.co",
+      "https://ethereum-sepolia.blockpi.network/v1/rpc/public",
+      "https://1rpc.io/sepolia"
+    ]
   }
 ];
 
@@ -110,19 +115,20 @@ const report = {
             pinnedError: String(e).slice(0, 150),
             latestError: String(fallbackError).slice(0, 150)
           });
-          checked = false;
+          // A provider outage is an inconclusive provider, not contradictory
+          // evidence. Two other independent successes may still be enough.
         }
       }
     }
 
     const ok = observations.filter(x => x.historicalOwner);
     if (ok.length !== 2) checked = false;
-    const identityAgree = ok.length === 2 &&
-      ok[0].historicalOwner === ok[1].historicalOwner &&
-      ok[0].walletCodeBytes === ok[1].walletCodeBytes;
-    const bothPinned = ok.length === 2 && ok.every(x => x.blockPinned);
+    const identityAgree = ok.length >= 2 &&
+      ok.every(x => x.historicalOwner === ok[0].historicalOwner &&
+                    x.walletCodeBytes === ok[0].walletCodeBytes);
+    const bothPinned = ok.length >= 2 && ok.every(x => x.blockPinned);
     const sameBlockNonceAgree = !bothPinned ||
-      ok[0].walletNonce === ok[1].walletNonce;
+      ok.every(x => x.walletNonce === ok[0].walletNonce);
     if (!identityAgree || !sameBlockNonceAgree) checked = false;
 
     const entry = {
@@ -140,7 +146,7 @@ const report = {
   report.success = checked &&
     report.networks.every(x =>
       x.dualProviderIdentityAgreement &&
-      x.observations.every(o => o.matchesHistoricalOwner)
+      x.observations.filter(o => o.historicalOwner).every(o => o.matchesHistoricalOwner)
     );
 
   fs.mkdirSync("audit-results", { recursive: true });
