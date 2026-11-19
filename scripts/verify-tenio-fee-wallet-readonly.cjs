@@ -122,13 +122,14 @@ const report = {
     }
 
     const ok = observations.filter(x => x.historicalOwner);
-    if (ok.length !== 2) checked = false;
+    if (ok.length < 2) checked = false;
     const identityAgree = ok.length >= 2 &&
       ok.every(x => x.historicalOwner === ok[0].historicalOwner &&
                     x.walletCodeBytes === ok[0].walletCodeBytes);
-    const bothPinned = ok.length >= 2 && ok.every(x => x.blockPinned);
+    const pinned = ok.filter(x => x.blockPinned);
+    const bothPinned = pinned.length >= 2;
     const sameBlockNonceAgree = !bothPinned ||
-      ok.every(x => x.walletNonce === ok[0].walletNonce);
+      pinned.every(x => x.walletNonce === pinned[0].walletNonce);
     if (!identityAgree || !sameBlockNonceAgree) checked = false;
 
     const entry = {
