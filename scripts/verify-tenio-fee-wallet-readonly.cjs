@@ -72,50 +72,66 @@ const report = {
       ? Math.min(...rawHeads.map(x => x.height)) - 3
       : null;
 
-    for (const { provider } of rawHeads) {
-      try {
-        const tag = "0x" + block.toString(16);
+    for (const { provider, height } of rawHeads) {
+      async function observeAt(tag, exactBlock) {
         const [code, nonce, rawOwner] = await Promise.all([
           rpc(provider, "eth_getCode", [WALLET, tag]),
           rpc(provider, "eth_getTransactionCount", [WALLET, tag]),
-          rpc(provider, "eth_call", [{
-            to: chain.oldContract,
-            data: ownerSelector
-          }, tag])
+          rpc(provider, "eth_call", [{ to: chain.oldContract, data: ownerSelector }, tag])
         ]);
         if (!rawOwner || rawOwner.length !== 66) throw Error("Malformed owner() return");
         const decoded = ethers.utils.getAddress("0x" + rawOwner.slice(-40));
-        observations.push({
+        return {
           provider,
-          block,
+          block: exactBlock ? block : height,
+          blockTag: tag,
+          blockPinned: exactBlock,
           feeRecipientAddress: ethers.utils.getAddress(WALLET),
           walletCodeBytes: code.length > 2 ? (code.length - 2) / 2 : 0,
           walletNonce: Number(BigInt(nonce)),
           historicalContract: chain.oldContract,
           historicalOwner: decoded,
           matchesHistoricalOwner: decoded.toLowerCase() === WALLET.toLowerCase()
-        });
+        };
+      }
+      try {
+        observations.push(await observeAt("0x" + block.toString(16), true));
       } catch (e) {
-        observations.push({ provider, block, error: String(e).slice(0, 170) });
-        checked = false;
+        // Some public Sepolia RPCs return "header not found" for an otherwise
+        // recent pinned block, even while serving the current head.
+        // Preserve the lower-quality latest-tag evidence explicitly.
+        try {
+          const latest = await observeAt("latest", false);
+          latest.pinnedFailure = String(e).slice(0, 150);
+          observations.push(latest);
+        } catch (fallbackError) {
+          observations.push({
+            provider, block,
+            pinnedError: String(e).slice(0, 150),
+            latestError: String(fallbackError).slice(0, 150)
+          });
+          checked = false;
+        }
       }
     }
 
     const ok = observations.filter(x => x.historicalOwner);
     if (ok.length !== 2) checked = false;
-    if (ok.length === 2 && (
-      ok[0].historicalOwner !== ok[1].historicalOwner ||
-      ok[0].walletCodeBytes !== ok[1].walletCodeBytes ||
-      ok[0].walletNonce !== ok[1].walletNonce
-    )) checked = false;
+    const identityAgree = ok.length === 2 &&
+      ok[0].historicalOwner === ok[1].historicalOwner &&
+      ok[0].walletCodeBytes === ok[1].walletCodeBytes;
+    const bothPinned = ok.length === 2 && ok.every(x => x.blockPinned);
+    const sameBlockNonceAgree = !bothPinned ||
+      ok[0].walletNonce === ok[1].walletNonce;
+    if (!identityAgree || !sameBlockNonceAgree) checked = false;
 
     const entry = {
       chain: chain.name, chainId: chain.chainId,
       block, observations,
-      dualProviderAgreement: ok.length === 2 &&
-        ok[0].historicalOwner === ok[1].historicalOwner &&
-        ok[0].walletCodeBytes === ok[1].walletCodeBytes &&
-        ok[0].walletNonce === ok[1].walletNonce
+      dualProviderIdentityAgreement: identityAgree,
+      samePinnedBlock: bothPinned,
+      fallbackLatestUsed: ok.some(x => !x.blockPinned),
+      sameBlockNonceAgree
     };
     report.networks.push(entry);
     console.log("WALLET_OBSERVATION " + JSON.stringify(entry));
@@ -123,7 +139,7 @@ const report = {
 
   report.success = checked &&
     report.networks.every(x =>
-      x.dualProviderAgreement &&
+      x.dualProviderIdentityAgreement &&
       x.observations.every(o => o.matchesHistoricalOwner)
     );
 
@@ -133,6 +149,7 @@ const report = {
   console.log("WALLET_AUDIT_SUMMARY " + JSON.stringify({
     feeRecipient: report.intendedFeeRecipient,
     dualProviderHistoricalOwnerMatch: report.success,
+    fallbackLatestUsed: report.networks.some(x => x.fallbackLatestUsed),
     caveat: report.caveat,
     artifact: output
   }));
