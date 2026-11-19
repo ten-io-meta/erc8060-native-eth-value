@@ -120,6 +120,8 @@ describe("ERC8060NativeETHReference — strict, generic, no administrator", func
   it("blocks reentrant mint during ERC721Receiver callback", async function () {
     const actor = await (await ethers.getContractFactory("ReferenceMintReentrancy")).deploy();
     await actor.deployed();
+    // Make sure the attacker has ETH to execute a nested mint if the guard fails.
+    await alice.sendTransaction({ to: actor.address, value: eth("0.04") });
     await actor.connect(alice).mintFrom(nft.address, { value: eth("0.04") });
     expect(await actor.tried()).to.equal(true);
     expect(await actor.blocked()).to.equal(true);
