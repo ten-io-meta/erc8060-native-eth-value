@@ -1,0 +1,30 @@
+name: TEN.IO fee wallet public read-only corroboration
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify-historical-wallet:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+      - name: Install pinned dependencies
+        run: npm ci
+      - name: Read ETH owner history and EOA bytecode without any transactions
+        run: node scripts/verify-tenio-fee-wallet-readonly.cjs
+      - name: Upload public read-only evidence including inconclusive results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tenio-confirmed-fee-wallet-onchain-check
+          path: audit-results/tenio-fee-wallet-readonly.json
+          if-no-files-found: warn
