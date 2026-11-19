@@ -9,7 +9,7 @@
 - Condicional Reservable: contracts/reference/ReservableConditionalETHReference.sol, blob cc8c106d92c972bc372ee98ceb9602a2e491f3eb, y contracts/IERC8060Reservable.sol. Contabilidad condicional: no se anuncia como strict ERC-8060, ni sus locks por sí mismos son cobros ejecutables.
 - Prueba de procedencia adversarial: docs/review/oecl_forged_provenance_v6.md, blob c80a4eab5dac1a1bd0ee4db224e3b9851a47d59d; PR #16 a SHA 8be07aadf1316f3cac38522ae58f73bfdf1ba3f3: 69/69 Foundry y 213/213 Hardhat. ATENCIÓN: algunos tests PASS reproducen contraejemplos de inseguridad, no los solucionan.
 - Despliegue histórico: TENIO-Fragment/contracts/TENIOFragment.sol, blob 027541c22e718fcfdf2e02d6c3245505ca5063a9, y revisión PR #3 en TENIO-Fragment. Quema sin pago si no hay ETH y administrador puede retirar todo el balance; prefijo de instrucciones ejecutables reproduce los despliegues, NO los 53 bytes de metadatos Solidity.
-- OECL original: open-erc-composition-laboratory/sources/manifest.json, blob 19538ef78a2b413c1a844baef31c24c0b57f060c. Dos fuentes Reservable están disabled=false? NO: figuran enabled: false. CI original compila TS y ejecuta experimento positivo; NO valida automáticamente las PR #10-16 recientes.
+- OECL original: open-erc-composition-laboratory/sources/manifest.json, blob 19538ef78a2b413c1a844baef31c24c0b57f060c. Las dos fuentes Reservable figuran con enabled: false y no se ingieren en el flujo principal. CI original compila TS y ejecuta experimento positivo; NO valida automáticamente las PR #10-16 recientes.
 
 ## Hallazgos por prioridad
 
