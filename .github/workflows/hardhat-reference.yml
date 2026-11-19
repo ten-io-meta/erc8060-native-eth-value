@@ -1,0 +1,26 @@
+name: ERC-8060 strict reference tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  hardhat-reference:
+    name: Compile and execute real redemption tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+      - name: Install locked dependencies
+        run: npm ci
+      - name: Compile the reference and adversarial probes
+        run: npm run compile
+      - name: Run the complete Hardhat test suite
+        run: npm test
