@@ -34,6 +34,8 @@ contract ReferenceMintReentrancy is IERC721Receiver {
     bool public tried;
     bool public blocked;
 
+    function fund() external payable {}
+
     function mintFrom(address nft_) external payable {
         nft = nft_;
         value = msg.value;
