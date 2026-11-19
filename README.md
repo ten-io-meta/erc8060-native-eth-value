@@ -1,100 +1,10 @@
-# ERC-8060 Reference Implementation
+# ERC-8060 — Native ETH value-bearing NFT reference
+
 [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.20849904.svg)](https://doi.org/10.5281/zenodo.20849904)
-Reference implementation and test suite for ERC-8060 native ETH value-bearing NFTs.
 
-## Overview
+**Draft research implementation, not a certified/audited standard or a deployment endorsement.**
 
-This repository contains a minimal ERC-8060 reference implementation demonstrating:
-
-* Native ETH-backed ERC-721 tokens
-* On-chain redeemable value tracking
-* Atomic redemption through burn
-* Surplus accounting
-* ERC-165 interface detection
-* Economic invariant testing
-
-The implementation is intentionally simple and is designed as a reference model for auditors, implementers and standards discussions.
-
----
-
-## Reference Parameters
-
-This reference implementation uses:
-
-* Mint price: `0.12 ETH`
-* Redeemable value: `0.10 ETH`
-
-These values are example parameters only.
-
-ERC-8060 does not mandate any specific mint price, collateral ratio or redeemable value.
-
-The original TEN.IO genesis deployment used:
-
-* Mint price: `0.012 ETH`
-* Redeemable value: `0.01 ETH`
-
-Future TEN.IO fragments may use different parameters while preserving the same accounting model.
-
----
-
-## Core Invariants
-
-### Invariant 1
-
-```text
-address(this).balance >= totalRedeemableValue
-```
-
-The contract must always remain solvent.
-
-### Invariant 2
-
-```text
-totalRedeemableValue
-=
-Σ valueOf(tokenId)
-for all live tokens
-```
-
-Outstanding obligations must equal the sum of redeemable values for all existing tokens.
-
-### Invariant 3
-
-```text
-Burn removes redeemable obligation
-before ETH transfer
-```
-
-Accounting updates occur before external value transfer.
-
-### Invariant 4
-
-```text
-Surplus withdrawals can never reduce
-redeemable obligations
-```
-
-Only excess ETH above outstanding obligations may be withdrawn.
-
----
-
-## Contract Features
-
-* ERC-721 compatible
-* ERC-721 Metadata compatible
-* ERC-165 interface detection
-* IERC721Value interface detection
-* Redeemable value accounting
-* Surplus accounting
-* Owner-controlled surplus withdrawal
-* Reentrancy protection
-* Event emission for mint, burn and surplus withdrawal
-
----
-
-## Strict IERC721Value Interface and ERC-165 Identity
-
-The current ERC-8060 **draft** requires both:
+This repository studies a deliberately small, implementation-independent ERC-8060 interface for ERC-721 NFTs with redeemable native ETH:
 
 ```solidity
 interface IERC721Value {
@@ -103,119 +13,53 @@ interface IERC721Value {
 }
 ```
 
-The draft interface ID is `0x88495fe7`, the ERC-165 XOR of the
-`valueOf(uint256)` and `burn(uint256)` function selectors.
+Its strict ERC-165 interface identifier is `0x88495fe7`. A self-reported interface identifier is **not evidence of actual backing or contract provenance**.
 
-An earlier version of this repository defined only `valueOf(uint256)`
-in the interface, yielding the historical ERC-165 ID `0xcadf338f`.
-The implementation nevertheless already supported owner-only `burn()`.
+## Preferred minimal implementation: no administrator, no product economics
 
-**Migration policy (opt-in compatibility, without weakening strict burn):**
+**`contracts/ERC8060Reference.sol`** is the proposed strict reference that models one ERC-721 NFT per fully funded ETH deposit.
 
-| ERC-165 ID | Declared capability | Correct consumer interpretation |
-| --- | --- | --- |
-| `0x88495fe7` | `valueOf(uint256)` + `burn(uint256)` | **Strict ERC-8060 draft interface**, including owner-initiated full redemption |
-| `0xcadf338f` | Historical `valueOf(uint256)` only | **Read-only value query**; does NOT certify a working burn path |
+- Each mint deposits its own independent backing; no fee, fixed price, branded collection or external beneficiary exists in this example.
+- `valueOf()` reports the ETH a live NFT owner can redeem.
+- `burn()` pays **exactly** the recorded amount or reverts all effects, and only the current NFT owner can call it.
+- No `Ownable`, privileged withdrawal, role granting, implementation upgrade or administrator.
+- No fixed issuance cap; specific supply restrictions are **application-level choices**, not part of ERC-8060.
 
-This updated reference intentionally advertises **both** interface IDs
-because it implements both signatures and can serve older value-query
-integrations. The strict, two-function ID is the sole ERC-8060 draft
-compliance signal. New financial applications MUST check that strict ID
-rather than relying on the historical query-only interface, a naked
-`valueOf` call, or any untrusted ERC-165 advertisement.
+Detailed invariant and security documentation: [docs/reference/no-admin-native-eth.md](docs/reference/no-admin-native-eth.md).
 
-Already deployed contracts do not change when this repository is updated.
-An old deployment that advertises only `0xcadf338f` must **not** be
-automatically promoted to strict ERC-8060 by a wallet or marketplace;
-it may require separate verification of its actual redemption path.
-New deployments of this updated reference keep both IDs visible.
+## Unified strict and historical interface detection
 
-The code only claims supported interfaces; it cannot authenticate that
-an arbitrary external NFT genuinely holds or pays the advertised ETH.
-This migration does not change mint/burn amounts or the accounting path.
+The single production-oriented research reference is `contracts/ERC8060Reference.sol`. Its primary ERC-165 identity is strict `0x88495fe7` (both functions). It **also** advertises legacy **value-only** detection `0xcadf338f` for older clients, without granting the legacy profile the same economic guarantees. A mock implementing only `valueOf` must not be misclassified as strict.
 
-This reference is a **strict full-token burn/redemption profile**.
-Conditional reservation profiles are separate experimental
-implementations and must not advertise this interface if active
-reservations can prevent the promised complete redemption.
+This consolidated branch replaces the previous `Ownable` fixed-price reference. The previous implementation and its 52-test suite remain recoverable from [historic PR #1](https://github.com/ten-io-meta/erc8060-native-eth-value/pull/1) and git history; they are **not** the canonical reference. No `Ownable`, fee, surplus claim, token price, issuer wallet, or upgrade route remains in the canonical Solidity contract.
 
-Draft status does not imply ERC finalization or an independent audit.
+## Separate projects / composability
 
-### Historical TENIO Fragment is **not** this strict implementation
+- **ERC-8060**: standard interface, native ETH backing and atomic owner redemption.
+- **ERC-8098**: independent ERC-20 irreversible/non-increasing supply profile; not required or implied by ERC-8060.
+- **Reservable**: optional conditional accounting, distinct from the strict owner-redemption profile whenever existing locks block whole-token burn.
+- **OECL**: laboratory for deployment provenance, concrete economic rights and reproducible evidence. It is not an omniscient safety certificate.
+- **TEN.IO** and all other issuers: application-layer contracts, collection names, prices, issuance caps, fees, recipient wallets and artwork belong in their own application repositories.
 
-The older [TENIO Fragment source and deployed executable](https://github.com/ten-io-meta/TENIO-Fragment/pull/3)
-was examined separately. Its deployed contract lacks the required `valueOf()`
-and strict ERC-165 identity, permits owner withdrawal of all backing, and can
-destroy tokens without paying when insufficiently funded. Those historical
-properties are **not imported** by this strict reference. The archived contracts
-remain deployed and are not modified or migrated by this PR.
+A separated example of TEN.IO's commercial implementation is maintained in [TEN.IO application draft PR #1](https://github.com/ten-io-meta/TEN-IO/pull/1); it is not part of the normative ERC-8060 interface.
 
-The strict reference has a protected `totalRedeemableValue` liability and
-only permits owner withdrawal of independently measured surplus. In an
-artificially underfunded Hardhat state, `burn()` reverts without destroying
-the NFT or reducing liabilities; this is not a claim that public users can
-force an underfunding state in the reference.
+## Implementation security distinctions
 
-ERC-165 capability declarations are not proof of authentic ETH backing:
-consumers accepting external NFTs still need trustworthy provenance and
-runtime economic validation. The contract and tests are research references,
-not audited production deployments.
+- A simple fully funded `mint()` allows any positive ETH deposit; it is **not part of IERC721Value** and does **not** represent any branded collection.
+- The contract uses checks-effects-interactions and `nonReentrant` on mint and burn. Burning sends exactly the recorded token value or reverts entirely.
+- Forced ETH can become irrecoverable surplus because there is deliberately **no** withdrawal authority. This is a no-admin policy trade-off, not a protocol requirement.
+- The test suite includes an independent shadow-amount accounting sequence across mints/transfers/burns, rejecting ETH receivers, reentrant callbacks, intentional local fault injection, ERC165 legacy-vs-strict, and event checks.
+- All testing is local EVM simulation, **not a third-party smart-contract audit**. Never equate claims in `supportsInterface` with authenticated bytecode and actual reserves.
 
----
-
-## Test Coverage
-
-Current test suite includes:
-
-* Mint validation
-* Redemption logic
-* Double redemption prevention
-* Transfer safety
-* Surplus accounting
-* Solvency preservation
-* Interface detection
-* Reentrancy protection (a receiver tries to burn a **different live token** during payout)
-* Atomic redemption behavior when an ETH receiver explicitly rejects payment
-* No NFT destruction under simulated ETH insolvency (test-only fault injection, not an onchain withdrawal route)
-* Exact ERC-165 selector XOR, optional legacy query ID, and a value-only impostor rejected as strict
-* Interface discovery stability across mint/transfer/burn cycles
-* Event emission validation
-
-The test file contains **52 substantive Mocha tests** after replacing four
-placeholder cases and adding negative tests for historical value-only detection
-and for an artificially underfunded vault (Hardhat balance fault injection). Refer to the GitHub Actions `ERC-8060 strict reference tests`
-workflow for the execution result of the commit being reviewed.
-The workflow uses the locked npm dependency tree, compiles Solidity, and
-runs the entire Hardhat suite on every pull request.
-
----
-
-## Development Environment
-
-* Solidity `0.8.20`
-* OpenZeppelin Contracts `4.9.6`
-* Hardhat `2.22.19`
-
-Install dependencies:
+## Verify locally
 
 ```bash
-npm install
+npm ci
+npm run compile
+npx hardhat test test/ERC8060Reference.test.js
+npm test
 ```
 
-Compile:
+All tests are local simulations. Passing tests is not an independent smart-contract audit or proof against all attacks. The minimal implementation should not be deployed with third-party funds until external security review, stateful invariant/fuzz testing, source and constructor provenance and adversarial interoperability testing are complete.
 
-```bash
-npx hardhat compile
-```
-
-Run tests:
-
-```bash
-npx hardhat test
-```
-
----
-
-## License
-
-MIT
+**No Ethereum transaction or deployment is performed by this repository's tests.**
