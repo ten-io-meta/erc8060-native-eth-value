@@ -83,3 +83,10 @@ contract ReferenceBurnReentrancy is IERC721Receiver {
         blocked = !ok;
     }
 }
+
+/// @dev Does not implement IERC721Receiver. A safe mint to this contract must revert.
+contract ReferenceRejectNFT {
+    function mintFrom(address nft) external payable {
+        IERC8060NativeMintBurnProbe(nft).mint{value: msg.value}();
+    }
+}
