@@ -1,0 +1,25 @@
+name: ERC-8060 strict fee-free no-admin reference
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  strict-native-eth:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      - name: Compile the ERC-8060 no-admin reference and hostile test actors
+        run: npm run compile
+      - name: Run generic no-admin reference and pre-existing regressions
+        run: npm test
