@@ -225,4 +225,29 @@ describe("ERC8060Reference — strict, generic, no administrator", function () {
     }
   });
 
+
+  it("reverts rejected ERC721 safe-mint atomically without creating ETH liabilities or using an ID", async function () {
+    const actor = await (await ethers.getContractFactory("ReferenceRejectNFT")).deploy();
+    await actor.deployed();
+    await expectRevert(actor.connect(alice).mintFrom(nft.address, {value:eth("0.04")}));
+    expect((await nft.nextTokenId()).eq(1)).to.equal(true);
+    expect((await nft.totalRedeemableValue()).eq(0)).to.equal(true);
+    expect((await ethers.provider.getBalance(nft.address)).eq(0)).to.equal(true);
+    await expectRevert(nft.ownerOf(1));
+  });
+
+  it("does not consume forced extra balance as holder debt or expose a surplus withdrawal", async function () {
+    await nft.connect(alice).mint({value:eth("0.10")});
+    // Local-only balance injection models ETH forced into a contract; no live transaction.
+    await network.provider.send("hardhat_setBalance", [nft.address, eth("0.16").toHexString()]);
+    expect((await nft.totalRedeemableValue()).eq(eth("0.10"))).to.equal(true);
+    await expectRevert(nft.connect(attacker).burn(1));
+    await nft.connect(alice).burn(1);
+    expect((await nft.totalRedeemableValue()).eq(0)).to.equal(true);
+    // The 0.06 ETH donation is deliberately stranded, not payable to an issuer.
+    expect((await ethers.provider.getBalance(nft.address)).eq(eth("0.06"))).to.equal(true);
+    expect(Object.keys(nft.interface.functions).some(s => /withdraw|rescue|sweep/i.test(s))).to.equal(false);
+  });
+
+
 });
