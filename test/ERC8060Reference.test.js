@@ -99,7 +99,7 @@ describe("ERC8060Reference — strict, generic, no administrator", function () {
 
     const preOwner = await nft.ownerOf(1);
     const preLiability = await nft.totalRedeemableValue();
-    const preValue = await nft.valueOf(1);
+    const preValue = await nft["valueOf(uint256)"](1);
     const preBacking = await ethers.provider.getBalance(nft.address);
     const preNextId = await nft.nextTokenId();
 
@@ -111,7 +111,7 @@ describe("ERC8060Reference — strict, generic, no administrator", function () {
     // nor the token's own previously reported redeemable value may change.
     expect(await nft.ownerOf(1)).to.equal(preOwner);
     expect((await nft.totalRedeemableValue()).eq(preLiability)).to.equal(true);
-    expect((await nft.valueOf(1)).eq(preValue)).to.equal(true);
+    expect((await nft["valueOf(uint256)"](1)).eq(preValue)).to.equal(true);
     expect((await ethers.provider.getBalance(nft.address)).eq(preBacking)).to.equal(true);
     expect((await nft.nextTokenId()).eq(preNextId)).to.equal(true);
     expect(await nft.supportsInterface("0x88495fe7")).to.equal(true);
@@ -131,7 +131,7 @@ describe("ERC8060Reference — strict, generic, no administrator", function () {
     // A real contract NFT owner without such a method could remain stuck.
     await actor.connect(deployer).transferOwnedToken(nft.address, alice.address, 1);
     expect(await nft.ownerOf(1)).to.equal(alice.address);
-    expect((await nft.valueOf(1)).eq(eth("0.10"))).to.equal(true);
+    expect((await nft["valueOf(uint256)"](1)).eq(eth("0.10"))).to.equal(true);
 
     await nft.connect(alice).burn(1);
     await expectRevert(nft.ownerOf(1));
