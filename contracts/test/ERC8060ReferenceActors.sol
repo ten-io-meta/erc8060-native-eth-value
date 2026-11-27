@@ -2,6 +2,7 @@
 pragma solidity ^0.8.20;
 
 import "@openzeppelin/contracts/token/ERC721/IERC721Receiver.sol";
+import "@openzeppelin/contracts/token/ERC721/IERC721.sol";
 
 interface IERC8060NativeMintBurnProbe {
     function mint() external payable returns (uint256);
@@ -10,12 +11,24 @@ interface IERC8060NativeMintBurnProbe {
 
 /// @dev Simulates a contract NFT holder that cannot receive its ETH redemption.
 contract ReferenceRejectETH is IERC721Receiver {
+    // Test-only recovery capability: NOT a generic ERC-8060 right.
+    address public immutable controller;
+
+    constructor() { controller = msg.sender; }
+
     function mintFrom(address nft) external payable {
         IERC8060NativeMintBurnProbe(nft).mint{value: msg.value}();
     }
 
     function tryBurn(address nft, uint256 id) external {
         IERC8060NativeMintBurnProbe(nft).burn(id);
+    }
+
+    /// @dev A specific rejecting-owner contract MAY offer a recovery transfer.
+    ///      ERC-8060 cannot promise this for all contract owners.
+    function transferOwnedToken(address nft, address recipient, uint256 id) external {
+        require(msg.sender == controller, "not actor controller");
+        IERC721(nft).transferFrom(address(this), recipient, id);
     }
 
     function onERC721Received(address, address, uint256, bytes calldata)
