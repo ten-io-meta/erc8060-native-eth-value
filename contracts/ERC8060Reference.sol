@@ -1,152 +1,88 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
-import "@openzeppelin/contracts/token/ERC721/extensions/ERC721URIStorage.sol";
-import "@openzeppelin/contracts/access/Ownable.sol";
+import "@openzeppelin/contracts/token/ERC721/ERC721.sol";
 import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
 
+/// @notice Strict draft ERC-8060 two-function interface.
+/// @dev The interface contains no fee, administration, issuance or collateral
+///      configuration rules; these belong to independent implementations.
 interface IERC721Value {
+    function valueOf(uint256 tokenId) external view returns (uint256);
+    function burn(uint256 tokenId) external;
+}
+
+/// @notice Historical one-function discovery interface. Read-only ID alone
+///         does NOT imply the ability to redeem ETH.
+interface IERC721ValueReadOnlyLegacy {
     function valueOf(uint256 tokenId) external view returns (uint256);
 }
 
+/// @notice Single canonical adminless ERC-8060 ETH-backed reference.
+/// @dev Research reference, not audited or approved for production deposits.
+///      Each NFT is backed by the exact ETH paid at mint, without fees or caps.
+///      This is not an ERC-8098 token (ERC-8098 concerns fungible ERC-20 supply).
 contract ERC8060Reference is
-    ERC721URIStorage,
-    Ownable,
+    ERC721,
     ReentrancyGuard,
     IERC721Value
 {
-    uint256 public nextTokenId;
-
-    uint256 public constant MINT_PRICE = 0.12 ether;
-    uint256 public constant REDEEM_VALUE = 0.10 ether;
-
-    bytes4 public constant IERC721VALUE_INTERFACE_ID =
-        type(IERC721Value).interfaceId;
-
+    uint256 public nextTokenId = 1;
     uint256 public totalRedeemableValue;
 
-    mapping(uint256 => uint256) private _redeemableValue;
+    mapping(uint256 => uint256) private _redeemable;
 
-    event Minted(
-        address indexed owner,
-        uint256 indexed tokenId,
-        uint256 value
-    );
+    event BackedMint(uint256 indexed tokenId, address indexed recipient, uint256 value);
+    event BackedBurn(uint256 indexed tokenId, address indexed owner, uint256 value);
 
-    event Burned(
-        address indexed owner,
-        uint256 indexed tokenId,
-        uint256 value
-    );
+    constructor(string memory name_, string memory symbol_) ERC721(name_, symbol_) {}
 
-    event SurplusWithdrawn(
-        address indexed owner,
-        uint256 amount
-    );
-
-    constructor()
-        ERC721("ERC8060 Reference", "ERC8060")
-    {}
-
-    function mint(string calldata uri) external payable {
-        require(msg.value == MINT_PRICE, "Incorrect ETH amount");
-
-        uint256 tokenId = ++nextTokenId;
-
-        _redeemableValue[tokenId] = REDEEM_VALUE;
-        totalRedeemableValue += REDEEM_VALUE;
+    /// @notice Creates one NFT backed by precisely msg.value native ETH.
+    /// @dev Mint is an example implementation method, not part of IERC721Value.
+    function mint() external payable nonReentrant returns (uint256 tokenId) {
+        require(msg.value > 0, "zero backing");
+        tokenId = nextTokenId++;
+        _redeemable[tokenId] = msg.value;
+        totalRedeemableValue += msg.value;
 
         _safeMint(msg.sender, tokenId);
-        _setTokenURI(tokenId, uri);
-
-        emit Minted(msg.sender, tokenId, REDEEM_VALUE);
+        require(address(this).balance >= totalRedeemableValue, "reserve deficit");
+        emit BackedMint(tokenId, msg.sender, msg.value);
     }
 
-    function valueOf(uint256 tokenId)
-        public
-        view
-        override
-        returns (uint256)
-    {
-        require(_exists(tokenId), "Nonexistent token");
-        return _redeemableValue[tokenId];
+    function valueOf(uint256 tokenId) external view override returns (uint256) {
+        require(_exists(tokenId), "nonexistent token");
+        return _redeemable[tokenId];
     }
 
-    function burn(uint256 tokenId)
-        external
-        nonReentrant
-    {
-        require(ownerOf(tokenId) == msg.sender, "Not token owner");
+    /// @notice Owner alone redeems its NFT's exact ETH or everything reverts.
+    function burn(uint256 tokenId) external override nonReentrant {
+        require(ownerOf(tokenId) == msg.sender, "not token owner");
+        uint256 payout = _redeemable[tokenId];
+        require(address(this).balance >= totalRedeemableValue, "reserve deficit");
 
-        uint256 redeemable = _redeemableValue[tokenId];
-
-        require(
-            address(this).balance >= redeemable,
-            "Insufficient contract balance"
-        );
-
+        delete _redeemable[tokenId];
+        totalRedeemableValue -= payout;
         _burn(tokenId);
 
-        emit Burned(msg.sender, tokenId, redeemable);
-
-        (bool success, ) = payable(msg.sender).call{value: redeemable}("");
-
-        require(success, "ETH transfer failed");
-    }
-
-    function _burn(uint256 tokenId)
-        internal
-        override(ERC721URIStorage)
-    {
-        uint256 redeemable = _redeemableValue[tokenId];
-
-        if (redeemable > 0) {
-            delete _redeemableValue[tokenId];
-            totalRedeemableValue -= redeemable;
-        }
-
-        super._burn(tokenId);
-    }
-
-    function surplusValue()
-        public
-        view
-        returns (uint256)
-    {
-        if (address(this).balance <= totalRedeemableValue) {
-            return 0;
-        }
-
-        return address(this).balance - totalRedeemableValue;
-    }
-
-    function withdrawSurplus(uint256 amount)
-        external
-        onlyOwner
-        nonReentrant
-    {
-        require(
-            amount <= surplusValue(),
-            "Exceeds surplus value"
-        );
-
-        emit SurplusWithdrawn(msg.sender, amount);
-
-        (bool success, ) = payable(owner()).call{value: amount}("");
-
-        require(success, "ETH transfer failed");
+        (bool sent, ) = payable(msg.sender).call{value: payout}("");
+        require(sent, "ETH redemption failed");
+        emit BackedBurn(tokenId, msg.sender, payout);
     }
 
     function supportsInterface(bytes4 interfaceId)
         public
         view
-        override(ERC721URIStorage)
+        override(ERC721)
         returns (bool)
     {
-        return
-            interfaceId == type(IERC721Value).interfaceId ||
-            super.supportsInterface(interfaceId);
+        return interfaceId == type(IERC721Value).interfaceId
+            || interfaceId == type(IERC721ValueReadOnlyLegacy).interfaceId
+            || super.supportsInterface(interfaceId);
     }
 
-    receive() external payable {}
+    // Deliberately NO: Ownable, mint fees, fee wallets, issue caps, metadata
+    // configuration, reserve withdrawal, privileged burning, proxy or upgrade.
+    // Non-payable fallback: normal direct ETH transfers revert. Forced ETH
+    // can become irrecoverable surplus; this is intentional in this example.
 }

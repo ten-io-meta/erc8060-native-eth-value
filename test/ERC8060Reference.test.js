@@ -1,552 +1,253 @@
 const { expect } = require("chai");
-const { ethers } = require("hardhat");
+const { ethers, network } = require("hardhat");
 
-describe("ERC8060Reference", function () {
-  const URI = "ipfs://example";
+describe("ERC8060Reference — strict, generic, no administrator", function () {
+  const eth = ethers.utils.parseEther;
+  let deployer, alice, bob, attacker, nft;
 
-  let owner;
-  let user;
-  let other;
-  let nft;
-  let MINT_PRICE;
-  let REDEEM_VALUE;
-
-  beforeEach(async function () {
-    [owner, user, other] = await ethers.getSigners();
-
-    const ERC8060Reference = await ethers.getContractFactory("ERC8060Reference");
-    nft = await ERC8060Reference.deploy();
-    await nft.deployed();
-
-    MINT_PRICE = await nft.MINT_PRICE();
-    REDEEM_VALUE = await nft.REDEEM_VALUE();
-  });
-
-  async function expectRevert(txPromise) {
+  async function expectRevert(p) {
     let reverted = false;
-
     try {
-      await txPromise;
+      const tx = await p;
+      if (tx && tx.wait) await tx.wait();
     } catch (error) {
       reverted = true;
     }
-
     expect(reverted).to.equal(true);
   }
 
-  async function valueOf(tokenId) {
-    return nft["valueOf(uint256)"](tokenId);
-  }
-
-  async function mintAs(signer, uri = URI) {
-    await nft.connect(signer).mint(uri, { value: MINT_PRICE });
-  }
-
-  it("mints only with the exact mint price", async function () {
-    await expectRevert(
-      nft.connect(user).mint(URI, { value: ethers.utils.parseEther("0.119") })
+  beforeEach(async function () {
+    [deployer, alice, bob, attacker] = await ethers.getSigners();
+    nft = await (await ethers.getContractFactory("ERC8060Reference")).deploy(
+      "Generic ETH-backed NFT", "E8060"
     );
-
-    await expectRevert(
-      nft.connect(user).mint(URI, { value: ethers.utils.parseEther("0.121") })
-    );
-
-    await mintAs(user);
-
-    expect(await nft.ownerOf(1)).to.equal(user.address);
+    await nft.deployed();
   });
 
-  it("valueOf returns the redeemable ETH value for an existing token", async function () {
-    await mintAs(user);
-
-    const value = await valueOf(1);
-
-    expect(value.toString()).to.equal(REDEEM_VALUE.toString());
+  it("does not include issuer fees, collection-specific prices, admin functions or upgrade rights", async function () {
+    const signatures = Object.keys(nft.interface.functions);
+    for (const forbidden of [
+      "owner()", "withdraw()", "withdrawSurplus(uint256)",
+      "setFeeRecipient(address)", "feeRecipient()", "mintFee()",
+      "maxMinted()", "upgradeTo(address)", "pause()", "setBaseURI(string)"
+    ]) {
+      expect(signatures.includes(forbidden)).to.equal(false);
+    }
+    expect(await nft.name()).to.equal("Generic ETH-backed NFT");
   });
 
-  it("valueOf reverts for nonexistent tokens", async function () {
-    await expectRevert(valueOf(999));
+  it("implements strict IERC721Value and explicitly separate historical value-only discovery ID", async function () {
+    expect(await nft.supportsInterface("0x88495fe7")).to.equal(true);
+    expect(await nft.supportsInterface("0x80ac58cd")).to.equal(true);
+    expect(await nft.supportsInterface("0x01ffc9a7")).to.equal(true);
+    expect(await nft.supportsInterface("0xcadf338f")).to.equal(true);
+    expect(await nft.supportsInterface("0xffffffff")).to.equal(false);
   });
 
-  it("only the current token owner can burn", async function () {
-    await mintAs(user);
-
-    await expectRevert(nft.connect(other).burn(1));
+  it("requires real positive ETH and creates no debt for a failed mint", async function () {
+    await expectRevert(nft.connect(alice).mint({ value: 0 }));
+    expect((await nft.totalRedeemableValue()).eq(0)).to.equal(true);
+    expect((await nft.nextTokenId()).eq(1)).to.equal(true);
   });
 
-  it("burn destroys the token and redeems the value", async function () {
-    await mintAs(user);
+  it("assigns each NFT its exact actual deposit, independent of collection branding", async function () {
+    await nft.connect(alice).mint({ value: eth("0.010") });
+    await nft.connect(bob).mint({ value: eth("0.123") });
+    expect((await nft["valueOf(uint256)"](1)).eq(eth("0.010"))).to.equal(true);
+    expect((await nft["valueOf(uint256)"](2)).eq(eth("0.123"))).to.equal(true);
+    expect((await nft.totalRedeemableValue()).eq(eth("0.133"))).to.equal(true);
+    expect((await ethers.provider.getBalance(nft.address)).eq(eth("0.133"))).to.equal(true);
+  });
 
-    const contractBalanceBefore = await ethers.provider.getBalance(nft.address);
+  it("redeems only for the current owner, and an ERC721 operator cannot burn", async function () {
+    await nft.connect(alice).mint({ value: eth("0.10") });
+    await nft.connect(alice).approve(attacker.address, 1);
+    await expectRevert(nft.connect(attacker).burn(1));
+    await nft.connect(alice).transferFrom(alice.address, bob.address, 1);
+    await expectRevert(nft.connect(alice).burn(1));
+    await nft.connect(bob).burn(1);
+    expect((await nft.totalRedeemableValue()).eq(0)).to.equal(true);
+    expect((await ethers.provider.getBalance(nft.address)).eq(0)).to.equal(true);
+    await expectRevert(nft.ownerOf(1));
+    await expectRevert(nft.connect(bob).burn(1));
+  });
 
-    await nft.connect(user).burn(1);
+  it("burn preserves other token holders' full backing", async function () {
+    await nft.connect(alice).mint({ value: eth("1") });
+    await nft.connect(bob).mint({ value: eth("0.35") });
+    await nft.connect(alice).burn(1);
+    expect((await nft.totalRedeemableValue()).eq(eth("0.35"))).to.equal(true);
+    expect((await ethers.provider.getBalance(nft.address)).eq(eth("0.35"))).to.equal(true);
+    expect((await nft["valueOf(uint256)"](2)).eq(eth("0.35"))).to.equal(true);
+    await nft.connect(bob).burn(2);
+    expect((await ethers.provider.getBalance(nft.address)).eq(0)).to.equal(true);
+  });
 
-    const contractBalanceAfter = await ethers.provider.getBalance(nft.address);
+  it("does not reissue burned IDs even when later mints occur", async function () {
+    await nft.connect(alice).mint({ value: eth("0.010") });
+    await nft.connect(alice).burn(1);
+    await nft.connect(bob).mint({ value: eth("0.02") });
+    expect(await nft.ownerOf(2)).to.equal(bob.address);
+    await expectRevert(nft.ownerOf(1));
+    expect((await nft.nextTokenId()).eq(3)).to.equal(true);
+  });
 
-    expect(contractBalanceAfter.toString()).to.equal(
-      contractBalanceBefore.sub(REDEEM_VALUE).toString()
-    );
+  it("reverts the entire burn when a smart-contract owner refuses ETH", async function () {
+    const actor = await (await ethers.getContractFactory("ReferenceRejectETH")).deploy();
+    await actor.deployed();
+    await actor.connect(alice).mintFrom(nft.address, { value: eth("0.10") });
+    await expectRevert(actor.connect(alice).tryBurn(nft.address, 1));
+    expect(await nft.ownerOf(1)).to.equal(actor.address);
+    expect((await nft.totalRedeemableValue()).eq(eth("0.10"))).to.equal(true);
+    expect((await ethers.provider.getBalance(nft.address)).eq(eth("0.10"))).to.equal(true);
+  });
 
+  it("reverts before destroying a token in a simulated insolvency state", async function () {
+    await nft.connect(alice).mint({ value: eth("0.05") });
+    await network.provider.send("hardhat_setBalance", [nft.address, "0x0"]);
+    await expectRevert(nft.connect(alice).burn(1));
+    expect(await nft.ownerOf(1)).to.equal(alice.address);
+    expect((await nft.totalRedeemableValue()).eq(eth("0.05"))).to.equal(true);
+    // The artificial state is local test fault injection, not a real-world
+    // route for attackers to force ETH out of a contract.
+  });
+
+  it("rejects direct ETH transfer unrelated to a mint, without creating obligations", async function () {
+    await expectRevert(alice.sendTransaction({ to: nft.address, value: eth("0.02") }));
+    expect((await nft.totalRedeemableValue()).eq(0)).to.equal(true);
+  });
+
+  it("blocks reentrant mint during ERC721Receiver callback", async function () {
+    const actor = await (await ethers.getContractFactory("ReferenceMintReentrancy")).deploy();
+    await actor.deployed();
+    // Make sure the attacker has ETH to execute a nested mint if the guard fails.
+    await alice.sendTransaction({ to: actor.address, value: eth("0.04") });
+    await actor.connect(alice).mintFrom(nft.address, { value: eth("0.04") });
+    expect(await actor.tried()).to.equal(true);
+    expect(await actor.blocked()).to.equal(true);
+    expect((await nft.totalRedeemableValue()).eq(eth("0.04"))).to.equal(true);
+    expect((await nft.nextTokenId()).eq(2)).to.equal(true);
+  });
+
+  it("blocks reentrant burn of another live token during a payout callback", async function () {
+    const actor = await (await ethers.getContractFactory("ReferenceBurnReentrancy")).deploy();
+    await actor.deployed();
+    await actor.connect(alice).mintFrom(nft.address, { value: eth("0.04") });
+    await actor.connect(alice).mintFrom(nft.address, { value: eth("0.06") });
+    await actor.connect(alice).burnFirst(1, 2);
+    expect(await actor.tried()).to.equal(true);
+    expect(await actor.blocked()).to.equal(true);
+    expect(await nft.ownerOf(2)).to.equal(actor.address);
+    expect((await nft.totalRedeemableValue()).eq(eth("0.06"))).to.equal(true);
+    expect((await ethers.provider.getBalance(nft.address)).eq(eth("0.06"))).to.equal(true);
+  });
+
+  it("conserves backing and accounting over a varied sequence without any issuer fee", async function () {
+    const deposits = ["0.010", "0.07", "0.10", "1"];
+    const ids = [];
+    for (const [i, deposit] of deposits.entries()) {
+      await nft.connect(i % 2 ? bob : alice).mint({ value: eth(deposit) });
+      ids.push(i + 1);
+    }
+    await nft.connect(alice).transferFrom(alice.address, bob.address, 1);
+    await nft.connect(bob).burn(1);
+    await nft.connect(alice).burn(3);
+    const expected = eth("0.07").add(eth("1"));
+    expect((await nft.totalRedeemableValue()).eq(expected)).to.equal(true);
+    expect((await ethers.provider.getBalance(nft.address)).eq(expected)).to.equal(true);
+    expect((await nft["valueOf(uint256)"](2)).add(await nft["valueOf(uint256)"](4)).eq(expected)).to.equal(true);
+  });
+  it("does not confuse a value-only ERC165 mock with the strict two-function guarantee", async function () {
+    const legacy = await (await ethers.getContractFactory("ERC8060LegacyValueOnlyProbe")).deploy();
+    await legacy.deployed();
+    expect(await legacy.supportsInterface("0xcadf338f")).to.equal(true);
+    expect(await legacy.supportsInterface("0x88495fe7")).to.equal(false);
+    expect(await nft.supportsInterface("0x88495fe7")).to.equal(true);
+  });
+
+  it("reports the strict interface ID as XOR of its exact function selectors", async function () {
+    const i = nft.interface.getSighash("valueOf(uint256)");
+    const j = nft.interface.getSighash("burn(uint256)");
+    const xor = "0x" + (BigInt(i) ^ BigInt(j)).toString(16).padStart(8, "0");
+    expect(xor).to.equal("0x88495fe7");
+  });
+
+  it("emits ERC721 Transfer burn and backing events without a fee", async function () {
+    const mint = await nft.connect(alice).mint({value:eth("0.027")});
+    const mintReceipt=await mint.wait();
+    expect(mintReceipt.events.some(x=>x.event==="BackedMint")).to.equal(true);
+    expect(mintReceipt.events.some(x=>x.event==="Transfer")).to.equal(true);
+    const burn = await nft.connect(alice).burn(1);
+    const receipt=await burn.wait();
+    expect(receipt.events.some(x=>x.event==="BackedBurn")).to.equal(true);
+    const transfer=receipt.events.find(x=>x.event==="Transfer");
+    expect(transfer.args.to).to.equal(ethers.constants.AddressZero);
+  });
+
+  it("rejects an unapproved operator even if approval is present for ERC721 transfer", async function () {
+    await nft.connect(alice).mint({value:eth("0.10")});
+    await nft.connect(alice).setApprovalForAll(attacker.address,true);
+    await expectRevert(nft.connect(attacker).burn(1));
+    expect(await nft.ownerOf(1)).to.equal(alice.address);
+  });
+
+  it("keeps reserve liabilities equal to independent shadow ledger during varied mint, transfer and burn sequences", async function () {
+    const users=[alice,bob,attacker],live=new Map();
+    const values=["0.001","0.021","0.13","0.20"];
+    for(let step=0;step<45;step++){
+      let entries=[...live.entries()];
+      const mode=step%6;
+      if(mode<3||entries.length===0){
+        const who=users[step%3],value=eth(values[step%values.length]);
+        const tokenId=(await nft.nextTokenId()).toNumber();
+        await nft.connect(who).mint({value});
+        live.set(tokenId,{who,value});
+      }else{
+        const [tokenId,item]=entries[0];
+        if(mode===3){
+          const to=users[(step+1)%3];
+          await nft.connect(item.who).transferFrom(item.who.address,to.address,tokenId);
+          live.set(tokenId,{who:to,value:item.value});
+        }else{
+          await nft.connect(item.who).burn(tokenId);
+          live.delete(tokenId);
+          await expectRevert(nft.ownerOf(tokenId));
+        }
+      }
+      let shadow=ethers.BigNumber.from(0);
+      for(const [tokenId,item] of live.entries()){
+        shadow=shadow.add(item.value);
+        expect((await nft["valueOf(uint256)"](tokenId)).eq(item.value)).to.equal(true);
+        expect(await nft.ownerOf(tokenId)).to.equal(item.who.address);
+      }
+      expect((await nft.totalRedeemableValue()).eq(shadow)).to.equal(true);
+      expect((await ethers.provider.getBalance(nft.address)).eq(shadow)).to.equal(true);
+    }
+  });
+
+
+  it("reverts rejected ERC721 safe-mint atomically without creating ETH liabilities or using an ID", async function () {
+    const actor = await (await ethers.getContractFactory("ReferenceRejectNFT")).deploy();
+    await actor.deployed();
+    await expectRevert(actor.connect(alice).mintFrom(nft.address, {value:eth("0.04")}));
+    expect((await nft.nextTokenId()).eq(1)).to.equal(true);
+    expect((await nft.totalRedeemableValue()).eq(0)).to.equal(true);
+    expect((await ethers.provider.getBalance(nft.address)).eq(0)).to.equal(true);
     await expectRevert(nft.ownerOf(1));
   });
 
-  it("cannot redeem the same token twice", async function () {
-    await mintAs(user);
-
-    await nft.connect(user).burn(1);
-
-    await expectRevert(nft.connect(user).burn(1));
+  it("does not consume forced extra balance as holder debt or expose a surplus withdrawal", async function () {
+    await nft.connect(alice).mint({value:eth("0.10")});
+    // Local-only balance injection models ETH forced into a contract; no live transaction.
+    await network.provider.send("hardhat_setBalance", [nft.address, eth("0.16").toHexString()]);
+    expect((await nft.totalRedeemableValue()).eq(eth("0.10"))).to.equal(true);
+    await expectRevert(nft.connect(attacker).burn(1));
+    await nft.connect(alice).burn(1);
+    expect((await nft.totalRedeemableValue()).eq(0)).to.equal(true);
+    // The 0.06 ETH donation is deliberately stranded, not payable to an issuer.
+    expect((await ethers.provider.getBalance(nft.address)).eq(eth("0.06"))).to.equal(true);
+    expect(Object.keys(nft.interface.functions).some(s => /withdraw|rescue|sweep/i.test(s))).to.equal(false);
   });
 
-  it("direct ETH sent to the contract does not change valueOf", async function () {
-    await mintAs(user);
 
-    await owner.sendTransaction({
-      to: nft.address,
-      value: ethers.utils.parseEther("1"),
-    });
-
-    const value = await valueOf(1);
-
-    expect(value.toString()).to.equal(REDEEM_VALUE.toString());
-  });
-
-  it("transfer preserves redeemable value for the new owner", async function () {
-    await mintAs(user);
-
-    await nft.connect(user).transferFrom(user.address, other.address, 1);
-
-    expect(await nft.ownerOf(1)).to.equal(other.address);
-
-    const value = await valueOf(1);
-
-    expect(value.toString()).to.equal(REDEEM_VALUE.toString());
-
-    await expectRevert(nft.connect(user).burn(1));
-
-    await nft.connect(other).burn(1);
-  });
-
-  it("tracks total redeemable value after mint", async function () {
-    await mintAs(user);
-
-    expect((await nft.totalRedeemableValue()).toString()).to.equal(
-      REDEEM_VALUE.toString()
-    );
-  });
-
-  it("tracks total redeemable value across multiple tokens", async function () {
-    await mintAs(user);
-    await mintAs(other);
-
-    expect((await nft.totalRedeemableValue()).toString()).to.equal(
-      REDEEM_VALUE.mul(2).toString()
-    );
-
-    expect((await valueOf(1)).toString()).to.equal(REDEEM_VALUE.toString());
-    expect((await valueOf(2)).toString()).to.equal(REDEEM_VALUE.toString());
-  });
-
-  it("burning one token does not affect another token value", async function () {
-    await mintAs(user);
-    await mintAs(other);
-
-    await nft.connect(user).burn(1);
-
-    await expectRevert(valueOf(1));
-
-    expect(await nft.ownerOf(2)).to.equal(other.address);
-    expect((await valueOf(2)).toString()).to.equal(REDEEM_VALUE.toString());
-  });
-
-  it("burning one token decreases total redeemable value only once", async function () {
-    await mintAs(user);
-    await mintAs(other);
-
-    await nft.connect(user).burn(1);
-
-    expect((await nft.totalRedeemableValue()).toString()).to.equal(
-      REDEEM_VALUE.toString()
-    );
-  });
-
-  it("surplus value equals contract balance minus redeemable obligations", async function () {
-    await mintAs(user);
-
-    const surplus = await nft.surplusValue();
-
-    expect(surplus.toString()).to.equal(
-      MINT_PRICE.sub(REDEEM_VALUE).toString()
-    );
-  });
-
-  it("owner can withdraw surplus value", async function () {
-    await mintAs(user);
-
-    const surplus = await nft.surplusValue();
-
-    await nft.connect(owner).withdrawSurplus(surplus);
-
-    expect((await nft.surplusValue()).toString()).to.equal("0");
-
-    expect((await valueOf(1)).toString()).to.equal(REDEEM_VALUE.toString());
-  });
-
-  it("owner cannot withdraw redeemable value as surplus", async function () {
-    await mintAs(user);
-
-    const surplus = await nft.surplusValue();
-
-    await expectRevert(
-      nft.connect(owner).withdrawSurplus(surplus.add(1))
-    );
-
-    expect((await valueOf(1)).toString()).to.equal(REDEEM_VALUE.toString());
-  });
-  it("multiple burns reduce obligations correctly", async function () {
-  await mintAs(user);
-  await mintAs(other);
-
-  await nft.connect(user).burn(1);
-
-  expect((await nft.totalRedeemableValue()).toString()).to.equal(
-    REDEEM_VALUE.toString()
-  );
-
-  await nft.connect(other).burn(2);
-
-  expect((await nft.totalRedeemableValue()).toString()).to.equal("0");
-});
-
-it("burning all tokens leaves only surplus", async function () {
-  await mintAs(user);
-  await mintAs(other);
-
-  const initialSurplus = MINT_PRICE.sub(REDEEM_VALUE).mul(2);
-
-  await nft.connect(user).burn(1);
-  await nft.connect(other).burn(2);
-
-  expect((await nft.surplusValue()).toString()).to.equal(
-    initialSurplus.toString()
-  );
-});
-
-it("surplus increases after direct ETH donation", async function () {
-  await mintAs(user);
-
-  const before = await nft.surplusValue();
-
-  await owner.sendTransaction({
-    to: nft.address,
-    value: ethers.utils.parseEther("1"),
-  });
-
-  const after = await nft.surplusValue();
-
-  expect(after.sub(before).toString()).to.equal(
-    ethers.utils.parseEther("1").toString()
-  );
-});
-
-it("burn cannot affect another owner's token", async function () {
-  await mintAs(user);
-  await mintAs(other);
-
-  await nft.connect(user).burn(1);
-
-  expect(await nft.ownerOf(2)).to.equal(other.address);
-
-  expect((await valueOf(2)).toString()).to.equal(
-    REDEEM_VALUE.toString()
-  );
-});
-
-it("token ids remain unique after burns", async function () {
-  await mintAs(user);
-
-  await nft.connect(user).burn(1);
-
-  await mintAs(other);
-
-  expect(await nft.ownerOf(2)).to.equal(other.address);
-});
-it("total redeemable value equals redeemable value per live token", async function () {
-  await mintAs(user);
-  await mintAs(other);
-
-  const total =
-    (await valueOf(1)).add(await valueOf(2));
-
-  expect(
-    (await nft.totalRedeemableValue()).toString()
-  ).to.equal(total.toString());
-});
-
-it("burn updates total redeemable value before transfer", async function () {
-  await mintAs(user);
-
-  await nft.connect(user).burn(1);
-
-  expect(
-    (await nft.totalRedeemableValue()).toString()
-  ).to.equal("0");
-});
-
-it("surplus withdrawal does not change token value", async function () {
-  await mintAs(user);
-
-  const before = await valueOf(1);
-
-  const surplus = await nft.surplusValue();
-
-  await nft.connect(owner).withdrawSurplus(surplus);
-
-  const after = await valueOf(1);
-
-  expect(after.toString()).to.equal(before.toString());
-});
-
-it("contract remains solvent after surplus withdrawal", async function () {
-  await mintAs(user);
-
-  const surplus = await nft.surplusValue();
-
-  await nft.connect(owner).withdrawSurplus(surplus);
-
-  await nft.connect(user).burn(1);
-
-  expect(
-    (await nft.totalRedeemableValue()).toString()
-  ).to.equal("0");
-});
-
-it("redeemable obligations never exceed contract balance", async function () {
-  await mintAs(user);
-  await mintAs(other);
-
-  const obligations = await nft.totalRedeemableValue();
-  const balance = await ethers.provider.getBalance(nft.address);
-
-  expect(balance.gte(obligations)).to.equal(true);
-});
-it("burning all tokens leaves total redeemable value at zero", async function () {
-  await mintAs(user);
-  await mintAs(other);
-
-  await nft.connect(user).burn(1);
-  await nft.connect(other).burn(2);
-
-  expect(
-    (await nft.totalRedeemableValue()).toString()
-  ).to.equal("0");
-});
-
-it("surplus remains positive after all redemptions", async function () {
-  await mintAs(user);
-  await mintAs(other);
-
-  await nft.connect(user).burn(1);
-  await nft.connect(other).burn(2);
-
-  expect(
-    (await nft.surplusValue()).gt(0)
-  ).to.equal(true);
-});
-
-it("multiple transfers do not alter redeemable value", async function () {
-  await mintAs(user);
-
-  await nft.connect(user).transferFrom(user.address, other.address, 1);
-  await nft.connect(other).transferFrom(other.address, user.address, 1);
-
-  expect(
-    (await valueOf(1)).toString()
-  ).to.equal(REDEEM_VALUE.toString());
-});
-
-it("token ids remain sequential after multiple burns and mints", async function () {
-  await mintAs(user);
-  await mintAs(other);
-
-  await nft.connect(user).burn(1);
-
-  await mintAs(user);
-
-  expect(await nft.ownerOf(3)).to.equal(user.address);
-});
-
-it("surplus withdrawal cannot create insolvency", async function () {
-  await mintAs(user);
-
-  const surplus = await nft.surplusValue();
-
-  await nft.connect(owner).withdrawSurplus(surplus);
-
-  expect(
-    (await ethers.provider.getBalance(nft.address)).toString()
-  ).to.equal(REDEEM_VALUE.toString());
-});
-it("burn fully removes token value before token becomes nonexistent", async function () {
-  await mintAs(user);
-
-  await nft.connect(user).burn(1);
-
-  await expectRevert(valueOf(1));
-
-  expect((await nft.totalRedeemableValue()).toString()).to.equal("0");
-});
-
-it("burning one token after surplus withdrawal still pays redeemable value", async function () {
-  await mintAs(user);
-
-  const surplus = await nft.surplusValue();
-  await nft.connect(owner).withdrawSurplus(surplus);
-
-  await nft.connect(user).burn(1);
-
-  expect((await nft.totalRedeemableValue()).toString()).to.equal("0");
-  expect((await ethers.provider.getBalance(nft.address)).toString()).to.equal("0");
-});
-
-it("cannot withdraw surplus after all surplus has already been withdrawn", async function () {
-  await mintAs(user);
-
-  const surplus = await nft.surplusValue();
-
-  await nft.connect(owner).withdrawSurplus(surplus);
-
-  await expectRevert(
-    nft.connect(owner).withdrawSurplus(1)
-  );
-});
-
-it("direct donation can be withdrawn as surplus without affecting redemption", async function () {
-  await mintAs(user);
-
-  await owner.sendTransaction({
-    to: nft.address,
-    value: ethers.utils.parseEther("1"),
-  });
-
-  const surplus = await nft.surplusValue();
-
-  await nft.connect(owner).withdrawSurplus(surplus);
-
-  expect((await valueOf(1)).toString()).to.equal(REDEEM_VALUE.toString());
-
-  await nft.connect(user).burn(1);
-
-  expect((await nft.totalRedeemableValue()).toString()).to.equal("0");
-});
-
-it("minting after all prior tokens are burned creates a fresh redeemable obligation", async function () {
-  await mintAs(user);
-
-  await nft.connect(user).burn(1);
-
-  await mintAs(other);
-
-  expect(await nft.ownerOf(2)).to.equal(other.address);
-  expect((await valueOf(2)).toString()).to.equal(REDEEM_VALUE.toString());
-  expect((await nft.totalRedeemableValue()).toString()).to.equal(REDEEM_VALUE.toString());
-});
-it("supports ERC165 interface detection", async function () {
-  expect(await nft.supportsInterface("0x01ffc9a7")).to.equal(true);
-});
-
-it("supports ERC721 interface detection", async function () {
-  expect(await nft.supportsInterface("0x80ac58cd")).to.equal(true);
-});
-
-it("supports ERC721 metadata interface detection", async function () {
-  expect(await nft.supportsInterface("0x5b5e139f")).to.equal(true);
-});
-
-it("supports IERC721Value interface detection", async function () {
-  const interfaceId = await nft.IERC721VALUE_INTERFACE_ID();
-
-  expect(await nft.supportsInterface(interfaceId)).to.equal(true);
-});
-
-it("does not support random interface ids", async function () {
-  expect(await nft.supportsInterface("0xffffffff")).to.equal(false);
-});
-it("burn reverts atomically if receiver rejects ETH", async function () {
-  // pendiente
-});
-
-it("reentrancy attempt cannot redeem twice", async function () {
-  // pendiente
-});
-
-it("IERC721Value interface id matches expected selector XOR", async function () {
-  // pendiente
-});
-
-it("supportsInterface remains stable after mint burn transfer cycles", async function () {
-  // pendiente
-});
-
-  it("non-owner cannot withdraw surplus", async function () {
-    await mintAs(user);
-
-    const surplus = await nft.surplusValue();
-
-    await expectRevert(
-      nft.connect(user).withdrawSurplus(surplus)
-    );
-  });
-
-  it("tokenURI remains ERC721-compatible", async function () {
-    await mintAs(user, "ipfs://token-1");
-
-    expect(await nft.tokenURI(1)).to.equal("ipfs://token-1");
-  });
-  it("emits Minted event", async function () {
-  const tx = await nft.connect(user).mint("ipfs://event", { value: MINT_PRICE });
-  const receipt = await tx.wait();
-
-  const event = receipt.events.find((e) => e.event === "Minted");
-
-  expect(event.args.owner).to.equal(user.address);
-  expect(event.args.tokenId.toString()).to.equal("1");
-  expect(event.args.value.toString()).to.equal(REDEEM_VALUE.toString());
-});
-
-it("emits Burned event", async function () {
-  await mintAs(user);
-
-  const tx = await nft.connect(user).burn(1);
-  const receipt = await tx.wait();
-
-  const event = receipt.events.find((e) => e.event === "Burned");
-
-  expect(event.args.owner).to.equal(user.address);
-  expect(event.args.tokenId.toString()).to.equal("1");
-  expect(event.args.value.toString()).to.equal(REDEEM_VALUE.toString());
-});
-it("surplusValue returns zero when there is no surplus", async function () {
-  await mintAs(user);
-
-  const surplus = await nft.surplusValue();
-
-  await nft.connect(owner).withdrawSurplus(surplus);
-
-  expect((await nft.surplusValue()).toString()).to.equal("0");
-});
-
-it("emits SurplusWithdrawn event", async function () {
-  await mintAs(user);
-
-  const surplus = await nft.surplusValue();
-
-  const tx = await nft.connect(owner).withdrawSurplus(surplus);
-  const receipt = await tx.wait();
-
-  const event = receipt.events.find((e) => e.event === "SurplusWithdrawn");
-
-  expect(event.args.owner).to.equal(owner.address);
-  expect(event.args.amount.toString()).to.equal(surplus.toString());
-})
 });
