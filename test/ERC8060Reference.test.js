@@ -92,14 +92,51 @@ describe("ERC8060Reference — strict, generic, no administrator", function () {
     expect((await nft.nextTokenId()).eq(3)).to.equal(true);
   });
 
-  it("reverts the entire burn when a smart-contract owner refuses ETH", async function () {
+  it("reverts a contract-owner ETH rejection atomically; preserves redeemable value and ownership", async function () {
     const actor = await (await ethers.getContractFactory("ReferenceRejectETH")).deploy();
     await actor.deployed();
     await actor.connect(alice).mintFrom(nft.address, { value: eth("0.10") });
+
+    const preOwner = await nft.ownerOf(1);
+    const preLiability = await nft.totalRedeemableValue();
+    const preValue = await nft["valueOf(uint256)"](1);
+    const preBacking = await ethers.provider.getBalance(nft.address);
+    const preNextId = await nft.nextTokenId();
+
+    expect(preOwner).to.equal(actor.address);
+    expect(preValue.eq(eth("0.10"))).to.equal(true);
     await expectRevert(actor.connect(alice).tryBurn(nft.address, 1));
+
+    // This is a mined/local EVM revert. Neither the NFT, accounting, backing,
+    // nor the token's own previously reported redeemable value may change.
+    expect(await nft.ownerOf(1)).to.equal(preOwner);
+    expect((await nft.totalRedeemableValue()).eq(preLiability)).to.equal(true);
+    expect((await nft["valueOf(uint256)"](1)).eq(preValue)).to.equal(true);
+    expect((await ethers.provider.getBalance(nft.address)).eq(preBacking)).to.equal(true);
+    expect((await nft.nextTokenId()).eq(preNextId)).to.equal(true);
+    expect(await nft.supportsInterface("0x88495fe7")).to.equal(true);
+  });
+
+  it("a rejecting contract owner can recover ONLY if it exposes an authorized NFT transfer", async function () {
+    const actor = await (await ethers.getContractFactory("ReferenceRejectETH")).deploy();
+    await actor.deployed();
+    await actor.connect(alice).mintFrom(nft.address, { value: eth("0.10") });
+
+    await expectRevert(actor.connect(alice).tryBurn(nft.address, 1));
+    await expectRevert(
+      actor.connect(attacker).transferOwnedToken(nft.address, alice.address, 1)
+    );
     expect(await nft.ownerOf(1)).to.equal(actor.address);
-    expect((await nft.totalRedeemableValue()).eq(eth("0.10"))).to.equal(true);
-    expect((await ethers.provider.getBalance(nft.address)).eq(eth("0.10"))).to.equal(true);
+    // Only this deliberately equipped test actor can transfer its NFT away.
+    // A real contract NFT owner without such a method could remain stuck.
+    await actor.connect(deployer).transferOwnedToken(nft.address, alice.address, 1);
+    expect(await nft.ownerOf(1)).to.equal(alice.address);
+    expect((await nft["valueOf(uint256)"](1)).eq(eth("0.10"))).to.equal(true);
+
+    await nft.connect(alice).burn(1);
+    await expectRevert(nft.ownerOf(1));
+    expect((await nft.totalRedeemableValue()).eq(0)).to.equal(true);
+    expect((await ethers.provider.getBalance(nft.address)).eq(0)).to.equal(true);
   });
 
   it("reverts before destroying a token in a simulated insolvency state", async function () {
