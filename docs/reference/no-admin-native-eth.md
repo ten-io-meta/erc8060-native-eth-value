@@ -36,6 +36,59 @@ At every reachable onchain state:
 
 These are **design requirements and tested behaviors**, not independently proven mathematical theorems for all possible executions. Review the exact code/bytecode, constructor inputs and deployment provenance before trusting external contracts that claim the same ERC-165 ID.
 
+## ERC-165 identity and payout-failure limitations
+
+The officially merged **Draft** in \`ethereum/ERCs/ERCS/erc-8060.md\`
+defines **both** \`valueOf(uint256)\` and \`burn(uint256)\` in \`IERC721Value\`.
+The canonical strict interface ID is the XOR of the two selectors:
+\`0x88495fe7\`. The historical **value-only** ID \`0xcadf338f\`
+is a separate, optional discovery signal. A contract exposing only
+the value-only ID is **not** strict ERC-8060, and advertising the strict
+ID is not independent proof of implementation correctness, backing,
+source provenance, or successful future redemption.
+
+A smart-contract NFT owner may implement ERC721 receiving correctly
+but revert whenever ETH is sent to it. In this example, \`burn(tokenId)\`
+then reverts **atomically**: the NFT remains owned by the contract,
+\`valueOf(tokenId)\` and \`totalRedeemableValue\` remain unchanged,
+and the actual ETH backing stays in the NFT contract. This preserves
+the obligation; it does **not** make the obligation immediately
+exercisable by that particular owner.
+
+If the owning contract explicitly provides an authorized NFT
+transfer method, it may move the token to an ETH-capable recipient,
+who can then invoke burn. **ERC-8060 does not promise such recovery**:
+a contract without a safe token-transfer or redemption-receipt path
+may leave its NFT and ETH value indefinitely inaccessible. Wallets
+and marketplaces MUST NOT interpret \`supportsInterface\` alone as
+proof that a contract owner can actually receive the ETH payout.
+
+A dedicated local EVM regression covers rejected payout, complete
+rollback, owner-only recovery transfer when available, and eventual
+redemption from a recipient that can accept ETH. The test actor's
+recovery method is deliberately **not** part of the ERC-8060 ABI.
+
+## Reservation/conditional-profile boundary
+
+Strict ERC-8060 \`valueOf(tokenId)\` is the ETH claim payable through
+its owner-only atomic \`burn(tokenId)\`, not an estimated collateral
+balance or an off-chain indication of potentially available value.
+A separate reservation implementation may maintain
+\`totalValue(tokenId,asset)\`, \`lockedValue(tokenId,asset)\`, and
+\`availableValue(tokenId,asset)\`; these are optional, asset-qualified
+accounting quantities and **not** the strict \`IERC721Value\` ABI.
+If an active reservation prevents the full specified burn payout,
+the implementation must not claim unconditional strict ERC-8060
+redemption merely by advertising \`0x88495fe7\`.
+
+No currently mandated ERC-165 interface ID automatically attests
+to the reservation-conditioned profile, its complete redemption
+semantics, its actual payment capability, or the safety of its
+deployment. Integrators need separately verified profile disclosure,
+source/deployment provenance, fresh chain-state reads, and
+execution-time checks. If any of these are missing, **unknown** is
+more accurate than claiming unrestricted redeemability.
+
 ## What is explicitly OUTSIDE ERC-8060
 
 Collection prices, mint fees, revenue destinations, immutable art metadata, named commercial tiers, max issuance, whitelists, game economies, ERC-8098 ERC-20 scarcity profiles, and Reservable conditional claims are external **applications or optional integrations**. In particular:
