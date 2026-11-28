@@ -101,10 +101,9 @@ A complete standalone product application with fees/caps belongs in its own prod
 ## Test
 
 ```bash
-npm ci
-npm run compile
-npx hardhat test test/ERC8060Reference.test.js
-npm test
+pnpm ci
+pnpm compile
+pnpm test
 ```
 
 The suite deliberately tests ETH conservation, owner access, ERC-165, transfer, double burn, rejecting ETH wallet, reentrant `_safeMint` callback, reentrant redemption callback, fake insolvency with local-only fault injection and the absence of privileged functions.

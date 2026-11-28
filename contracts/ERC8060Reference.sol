@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
-import "@openzeppelin/contracts/token/ERC721/ERC721.sol";
-import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
+import {ERC721} from "@openzeppelin/contracts/token/ERC721/ERC721.sol";
+import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
 /// @notice Strict draft ERC-8060 two-function interface.
 /// @dev The interface contains no fee, administration, issuance or collateral
@@ -27,6 +27,12 @@ contract ERC8060Reference is
     ReentrancyGuard,
     IERC721Value
 {
+    error zeroBacking();
+    error NotTokenOwner();
+    error ReserveDeficit();
+    error nonExistentToken();
+    error ethRedemptionFailed();
+
     uint256 public nextTokenId = 1;
     uint256 public totalRedeemableValue;
 
@@ -40,33 +46,37 @@ contract ERC8060Reference is
     /// @notice Creates one NFT backed by precisely msg.value native ETH.
     /// @dev Mint is an example implementation method, not part of IERC721Value.
     function mint() external payable nonReentrant returns (uint256 tokenId) {
-        require(msg.value > 0, "zero backing");
+        if (msg.value == 0) revert zeroBacking();
+
         tokenId = nextTokenId++;
         _redeemable[tokenId] = msg.value;
         totalRedeemableValue += msg.value;
 
         _safeMint(msg.sender, tokenId);
-        require(address(this).balance >= totalRedeemableValue, "reserve deficit");
+        if (address(this).balance < totalRedeemableValue) revert ReserveDeficit();
+
         emit BackedMint(tokenId, msg.sender, msg.value);
     }
 
     function valueOf(uint256 tokenId) external view override returns (uint256) {
-        require(_exists(tokenId), "nonexistent token");
+        if (_ownerOf(tokenId) == address(0)) revert nonExistentToken();
         return _redeemable[tokenId];
     }
 
     /// @notice Owner alone redeems its NFT's exact ETH or everything reverts.
     function burn(uint256 tokenId) external override nonReentrant {
-        require(ownerOf(tokenId) == msg.sender, "not token owner");
+        if (ownerOf(tokenId) != msg.sender) revert NotTokenOwner();
+
         uint256 payout = _redeemable[tokenId];
-        require(address(this).balance >= totalRedeemableValue, "reserve deficit");
+        if (address(this).balance < totalRedeemableValue) revert ReserveDeficit();
 
         delete _redeemable[tokenId];
         totalRedeemableValue -= payout;
         _burn(tokenId);
 
         (bool sent, ) = payable(msg.sender).call{value: payout}("");
-        require(sent, "ETH redemption failed");
+        if (!sent) revert ethRedemptionFailed();
+
         emit BackedBurn(tokenId, msg.sender, payout);
     }
 

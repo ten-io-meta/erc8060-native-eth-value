@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "description": "Reference implementation and test suite for ERC-8060 native ETH value-bearing NFTs.",
   "main": "index.js",
+  "type": "module",
   "scripts": {
     "test": "hardhat test",
     "compile": "hardhat compile"
@@ -26,12 +27,14 @@
   },
   "homepage": "https://github.com/ten-io-meta/erc8060-native-eth-value#readme",
   "devDependencies": {
-    "@nomiclabs/hardhat-ethers": "^2.2.3",
-    "chai": "^4.5.0",
-    "ethers": "^5.8.0",
-    "hardhat": "2.22.19"
+    "@nomicfoundation/hardhat-ethers": "4.2.3",
+    "@nomicfoundation/hardhat-ethers-chai-matchers": "3.0.13",
+    "@nomicfoundation/hardhat-mocha": "4.0.2",
+    "chai": "6.3.0",
+    "ethers": "6.17.0",
+    "hardhat": "3.23.0"
   },
   "dependencies": {
-    "@openzeppelin/contracts": "^4.9.6"
+    "@openzeppelin/contracts": "5.7.0"
   }
 }
