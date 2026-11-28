@@ -54,7 +54,7 @@ A separated example of TEN.IO's commercial implementation is maintained in [TEN.
 ## Verify locally
 
 ```bash
-pnpm ci
+pnpm install --frozen-lockfile
 pnpm compile
 pnpm test
 ```

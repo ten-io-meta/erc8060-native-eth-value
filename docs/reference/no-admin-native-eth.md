@@ -101,7 +101,7 @@ A complete standalone product application with fees/caps belongs in its own prod
 ## Test
 
 ```bash
-pnpm ci
+pnpm install --frozen-lockfile
 pnpm compile
 pnpm test
 ```

@@ -17,10 +17,17 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
-          cache: npm
+          cache: pnpm
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
       - name: Install locked dependencies
-        run: npm ci
+        run: pnpm install --frozen-lockfile
+
       - name: Compile the reference and adversarial probes
-        run: npm run compile
+        run: pnpm run compile
+
       - name: Run the complete Hardhat test suite
-        run: npm test
+        run: pnpm test
