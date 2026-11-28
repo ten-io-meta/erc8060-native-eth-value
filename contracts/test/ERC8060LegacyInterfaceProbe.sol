@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
-import "@openzeppelin/contracts/utils/introspection/ERC165.sol";
+import {ERC165} from "@openzeppelin/contracts/utils/introspection/ERC165.sol";
 
 /// @notice Lab-only illustration of historical one-function valueOf detection.
 /// @dev Deliberately has no burn(), ETH backing or redemption path.

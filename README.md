@@ -54,10 +54,9 @@ A separated example of TEN.IO's commercial implementation is maintained in [TEN.
 ## Verify locally
 
 ```bash
-npm ci
-npm run compile
-npx hardhat test test/ERC8060Reference.test.js
-npm test
+pnpm install --frozen-lockfile
+pnpm compile
+pnpm test
 ```
 
 All tests are local simulations. Passing tests is not an independent smart-contract audit or proof against all attacks. The minimal implementation should not be deployed with third-party funds until external security review, stateful invariant/fuzz testing, source and constructor provenance and adversarial interoperability testing are complete.

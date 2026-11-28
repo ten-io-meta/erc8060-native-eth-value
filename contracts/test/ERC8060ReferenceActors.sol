@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
-import "@openzeppelin/contracts/token/ERC721/IERC721Receiver.sol";
-import "@openzeppelin/contracts/token/ERC721/IERC721.sol";
+import {IERC721Receiver} from "@openzeppelin/contracts/token/ERC721/IERC721Receiver.sol";
+import {IERC721} from "@openzeppelin/contracts/token/ERC721/IERC721.sol";
 
 interface IERC8060NativeMintBurnProbe {
     function mint() external payable returns (uint256);
@@ -11,6 +11,9 @@ interface IERC8060NativeMintBurnProbe {
 
 /// @dev Simulates a contract NFT holder that cannot receive its ETH redemption.
 contract ReferenceRejectETH is IERC721Receiver {
+    error noEthAccepted();
+    error notActorController();
+
     // Test-only recovery capability: NOT a generic ERC-8060 right.
     address public immutable controller;
 
@@ -27,7 +30,7 @@ contract ReferenceRejectETH is IERC721Receiver {
     /// @dev A specific rejecting-owner contract MAY offer a recovery transfer.
     ///      ERC-8060 cannot promise this for all contract owners.
     function transferOwnedToken(address nft, address recipient, uint256 id) external {
-        require(msg.sender == controller, "not actor controller");
+        if (msg.sender != controller) revert notActorController();
         IERC721(nft).transferFrom(address(this), recipient, id);
     }
 
@@ -37,7 +40,7 @@ contract ReferenceRejectETH is IERC721Receiver {
         return IERC721Receiver.onERC721Received.selector;
     }
 
-    receive() external payable { revert("no ETH accepted"); }
+    receive() external payable { revert noEthAccepted(); }
 }
 
 /// @dev Attempts to mint twice inside ERC721Receiver callback.
